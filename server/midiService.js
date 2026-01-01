@@ -41,8 +41,35 @@ function getActiveDevices() {
     return Object.keys(store.getState().devices || {});
 }
 
+/**
+ * Send channel change notification (for hardware sync if available)
+ * @param {string} deviceName 
+ * @param {number} channel 
+ */
+function sendChannelChange(deviceName, channel) {
+    console.log(`[midiService] Channel change: ${deviceName} -> CH ${channel}`);
+    // In cloud mode, we simply log this. 
+    // In hardware mode, this would send MIDI to the device.
+    store.updateDeviceChannel && store.updateDeviceChannel(deviceName, channel);
+}
+
+/**
+ * Send a test ping CC to a device
+ * @param {string} deviceName 
+ * @param {number} channel (1-16)
+ * @param {number} cc 
+ * @param {number} value 
+ */
+function sendPing(deviceName, channel, cc, value) {
+    console.log(`[midiService] Ping: ${deviceName} CH${channel} CC${cc}=${value}`);
+    // In cloud mode, this is a no-op for hardware.
+    // Could be used to confirm connection or sync state.
+}
+
 module.exports = {
     init,
     handleClientMidi,
-    getActiveDevices
+    getActiveDevices,
+    sendChannelChange,
+    sendPing
 };

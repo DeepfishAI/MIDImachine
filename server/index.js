@@ -53,6 +53,23 @@ io.on('connection', (socket) => {
     socket.on('midi:client:message', (data) => {
         midiService.handleClientMidi(data, io);
     });
+
+    // Handle channel update from client
+    socket.on('midi:channel:update', (data) => {
+        const { deviceName, channel } = data;
+        console.log(`Channel update: ${deviceName} -> CH ${channel}`);
+        // Broadcast to other clients
+        socket.broadcast.emit('midi:channel:updated', data);
+        // Could also send to hardware via midiService if needed
+        midiService.sendChannelChange && midiService.sendChannelChange(deviceName, channel);
+    });
+
+    // Handle ping/test CC
+    socket.on('midi:ping', (data) => {
+        const { deviceName, channel, cc, value } = data;
+        console.log(`Ping: ${deviceName} CH${channel} CC${cc}=${value}`);
+        midiService.sendPing && midiService.sendPing(deviceName, channel, cc, value);
+    });
 });
 
 app.get('/api/state', (req, res) => {
