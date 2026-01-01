@@ -12,6 +12,7 @@ export default defineConfig([
       js.configs.recommended,
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
+      'prettier', // Turns off formatting rules that conflict with Prettier
     ],
     languageOptions: {
       ecmaVersion: 2020,
@@ -27,3 +28,4 @@ export default defineConfig([
     },
   },
 ])
+

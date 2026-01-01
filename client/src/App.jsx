@@ -1,176 +1,201 @@
-import { useEffect, useState } from 'react'
-import { io } from 'socket.io-client'
-import DraggableBoxes from './components/DraggableBoxes'
-import './App.css'
+import { useEffect, useState, useCallback } from 'react';
+import { io } from 'socket.io-client';
+import Header from './components/Header';
+import Canvas from './components/Canvas';
+import SystemMonitor from './components/SystemMonitor';
+import './App.css';
 
-const SERVER_URL = import.meta.env.PROD ? window.location.origin : "http://localhost:3000";
+const SERVER_URL = import.meta.env.PROD ? window.location.origin : 'http://localhost:3000';
 const socket = io(SERVER_URL);
 
 function App() {
-  const [inputs, setInputs] = useState([]);
+    const [inputs, setInputs] = useState([]);
+    const [midiAccess, setMidiAccess] = useState(null);
+    const [midiStatus, setMidiStatus] = useState('Initializing...');
+    const [totalMessages, setTotalMessages] = useState(0);
+    const [boxCount, setBoxCount] = useState(0);
 
-  // Track active MIDI sources: { id: "DeviceName_Ch1", label: "DeviceName", channel: 1 }
-  const [sources, setSources] = useState([]);
+    // Track active MIDI sources
+    const [sources, setSources] = useState([]);
 
-  // Track messages for visual feedback (optional, maybe passed to boxes later)
-  const [messages, setMessages] = useState({});
+    // Track manually removed source IDs
+    const [deletedIds, setDeletedIds] = useState(new Set());
 
-  useEffect(() => {
-    // --- Socket handlers ---
-    socket.on('connect', () => console.log('Connected to server'));
+    useEffect(() => {
+        socket.on('connect', () => console.log('Connected to server'));
+        socket.on('midi:update', (data) => handleIncomingMidi(data));
 
-    socket.on('midi:update', (data) => {
-      handleIncomingMidi(data);
-    });
+        if (navigator.requestMIDIAccess) {
+            setMidiStatus('Requesting Permission...');
+            navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
+        } else {
+            setMidiStatus('Web MIDI Not Supported');
+        }
 
-    // --- Browser MIDI Access ---
-    if (navigator.requestMIDIAccess) {
-      navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
-    } else {
-      console.error("Web MIDI API not supported in this environment");
+        return () => {
+            socket.off('connect');
+            socket.off('midi:update');
+        };
+    }, []);
+
+    // Background polling
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (navigator.requestMIDIAccess) {
+                navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
+            }
+        }, 5000);
+        return () => clearInterval(interval);
+    }, []);
+
+    function handleIncomingMidi(data) {
+        const { deviceName, channel } = data;
+        const sourceId = `${deviceName}_ch${channel}`;
+
+        setSources((prev) => {
+            if (prev.find((s) => s.id === sourceId)) return prev;
+            return [...prev, { id: sourceId, label: deviceName, channel }];
+        });
     }
 
-    return () => {
-      socket.off('connect');
-      socket.off('midi:update');
-    };
-  }, []);
+    function onMIDISuccess(access) {
+        setMidiAccess(access);
+        const refreshInputs = () => {
+            const midiInputs = [];
+            const newSources = [];
 
-  function handleIncomingMidi(data) {
-    const { deviceName, channel, cc, value } = data;
+            for (const input of access.inputs.values()) {
+                midiInputs.push(input);
+                input.onmidimessage = (msg) => getMIDIMessage(msg, input.name);
 
-    // 1. Update Values
-    setMessages(prev => ({
-      ...prev,
-      [`${deviceName}_${channel}_${cc}`]: value
-    }));
+                const defaultSourceId = `${input.name}_ch1`;
+                newSources.push({
+                    id: defaultSourceId,
+                    label: input.name,
+                    channel: 1,
+                    isHardware: true,
+                });
+            }
 
-    // 2. Discover Source (Box)
-    // Unique ID for a "Box" is Device + Channel
-    const sourceId = `${deviceName}_ch${channel}`;
+            setInputs(midiInputs);
 
-    setSources(prev => {
-      // Check if already exists
-      if (prev.find(s => s.id === sourceId)) return prev;
+            setSources((prev) => {
+                let hasNew = false;
+                const updated = [...prev];
 
-      // Add new source
-      return [...prev, {
-        id: sourceId,
-        label: deviceName,
-        channel: channel
-      }];
-    });
-  }
+                newSources.forEach((ns) => {
+                    const isDeleted = deletedIds.has(ns.id);
+                    const alreadyExists = updated.find((s) => s.id === ns.id);
 
-  const [totalMessages, setTotalMessages] = useState(0);
+                    if (!alreadyExists && !isDeleted) {
+                        updated.push(ns);
+                        hasNew = true;
+                    }
+                });
 
-  function onMIDISuccess(midiAccess) {
-    const midiInputs = [];
-    for (const input of midiAccess.inputs.values()) {
-      midiInputs.push(input);
-      // Pass the device name explicitly to avoid access issues
-      input.onmidimessage = (msg) => getMIDIMessage(msg, input.name);
+                return hasNew ? updated : prev;
+            });
+        };
+
+        refreshInputs();
+        access.onstatechange = () => refreshInputs();
+        setMidiStatus('Access Granted');
     }
-    setInputs(midiInputs);
 
-    midiAccess.onstatechange = (e) => {
-      // Refresh
-      const newInputs = [];
-      for (const input of midiAccess.inputs.values()) newInputs.push(input);
-      setInputs(newInputs);
-    };
-  }
-
-  function onMIDIFailure() {
-    console.error('Could not access your MIDI devices.');
-  }
-
-  function getMIDIMessage(message, deviceName) {
-    // Debug: Log raw message
-    // console.log("Raw MIDI:", message.data);
-
-    const [status, data1, data2] = message.data;
-    const command = status & 0xF0;
-    const channel = (status & 0x0F) + 1;
-
-    setTotalMessages(prev => prev + 1);
-
-    // Only handle CC (176) and NoteOn (144) for discovery (though app spec said CC)
-    if (command === 176 || command === 144) {
-      const cc = data1; // or Note Number
-      const val = data2; // Velocity or Value
-      // Fallback if deviceName wasn't passed (shouldn't happen with new logic)
-      const name = deviceName || message.currentTarget?.name || "Unknown Device";
-
-      // Emit to Server
-      socket.emit('midi:client:message', {
-        deviceName: name,
-        channel,
-        cc,
-        value: val
-      });
-
-      // Also handle locally immediately for low latency UI
-      handleIncomingMidi({ deviceName: name, channel, cc, value: val });
+    function onMIDIFailure() {
+        setMidiStatus('Access Denied/Failed');
     }
-  }
 
-  return (
-    <div style={{
-      width: '100vw',
-      height: '100vh',
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      overflow: 'hidden'
-    }}>
-      {/* Overlay Status Bar */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        padding: '10px 20px',
-        background: 'rgba(0,0,0,0.8)',
-        color: '#fff',
-        zIndex: 1000,
-        display: 'flex',
-        justifyContent: 'space-between',
-        pointerEvents: 'none' // Let clicks pass through to canvas
-      }}>
-        <div style={{ fontWeight: 'bold', color: '#0f0' }}>MIDImachine v2 (DEBUG)</div>
-        <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>
-          {socket.connected ? 'Connected' : 'Connecting...'} | {inputs.length} HW Devices | Rx: {totalMessages} | Sources: {sources.length}
+    const resetMidi = useCallback(() => {
+        setDeletedIds(new Set());
+        if (navigator.requestMIDIAccess) {
+            navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
+        }
+    }, []);
+
+    const removeSource = useCallback((id) => {
+        setDeletedIds((prev) => {
+            const next = new Set(prev);
+            next.add(id);
+            return next;
+        });
+        setSources((prev) => prev.filter((s) => s.id !== id));
+    }, []);
+
+    const updateSourceChannel = useCallback(
+        (id, newChannel) => {
+            setSources((prev) =>
+                prev.map((s) => {
+                    if (s.id === id) {
+                        if (midiAccess) {
+                            const outputs = Array.from(midiAccess.outputs.values());
+                            const output = outputs.find((o) => o.name === s.label);
+                            if (output) {
+                                output.send([176 + (s.channel - 1), 12, newChannel - 1]);
+                            }
+                        }
+                        return { ...s, channel: newChannel };
+                    }
+                    return s;
+                })
+            );
+        },
+        [midiAccess]
+    );
+
+    // Bridge for child components
+    window.appUpdateChannel = updateSourceChannel;
+
+    function getMIDIMessage(message, deviceName) {
+        const [status, data1, data2] = message.data;
+        const command = status & 0xf0;
+        const channel = (status & 0x0f) + 1;
+
+        setTotalMessages((prev) => prev + 1);
+
+        if (command === 176 || command === 144 || command === 128) {
+            const cc = data1;
+            const val = data2;
+            const name = deviceName || 'Unknown Device';
+
+            socket.emit('midi:client:message', { deviceName: name, channel, cc, value: val });
+            handleIncomingMidi({ deviceName: name, channel, cc, value: val });
+        }
+    }
+
+    return (
+        <div
+            style={{
+                width: '100vw',
+                height: '100vh',
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                overflow: 'hidden',
+            }}
+        >
+            {/* Header */}
+            <Header
+                midiStatus={midiStatus}
+                socketConnected={socket.connected}
+                inputCount={inputs.length}
+                totalMessages={totalMessages}
+                boxCount={boxCount}
+                onRescan={resetMidi}
+            />
+
+            {/* Main Canvas */}
+            <Canvas
+                sources={sources}
+                onRemove={removeSource}
+                onChannelChange={updateSourceChannel}
+                onBoxCountChange={setBoxCount}
+            />
+
+            {/* System Monitor */}
+            <SystemMonitor sources={sources} boxCount={boxCount} />
         </div>
-      </div>
-
-      {/* RAW DATA DEBUG */}
-      <div style={{ position: 'fixed', top: 50, left: 10, color: 'yellow', opacity: 0.5, pointerEvents: 'none' }}>
-        Sources Data: {JSON.stringify(sources)}
-      </div>
-
-      {/* Main Canvas Area */}
-      <DraggableBoxes sources={sources} />
-
-      {/* Helper for empty state */}
-      {sources.length === 0 && (
-        <div style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          color: '#888',
-          textAlign: 'center',
-          pointerEvents: 'none',
-          fontFamily: 'sans-serif'
-        }}>
-          Waiting for MIDI CC data...<br />
-          Turn a knob on your controller to create a box.<br />
-          <span style={{ fontSize: '0.8em', opacity: 0.6 }}>Received {totalMessages} messages</span>
-        </div>
-      )}
-    </div>
-  )
+    );
 }
 
-export default App
+export default App;

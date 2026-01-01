@@ -1,20 +1,19 @@
 /**
  * ╔═══════════════════════════════════════════════════════════════════════════╗
- * ║                        MIDI MACHINE - DRAGGABLE BOXES                     ║
- * ║  Container component managing hardware device cards in the workspace      ║
+ * ║                          MIDI MACHINE - CANVAS                            ║
+ * ║  Main workspace area that renders and manages hardware Box positions      ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
 import Box from './Box';
 
-const DraggableBoxes = ({ sources = [], onRemove, onChannelChange }) => {
+const Canvas = memo(({ sources = [], onRemove, onChannelChange, onBoxCountChange }) => {
     /* ═══════════════════════════════════════════════════════════════════════
      *  STATE MANAGEMENT
      * ═══════════════════════════════════════════════════════════════════════ */
 
-    const [boxStates, setBoxStates] = useState({}); // Position state: { [id]: { x, y, customLabel } }
-    const [dragState, setDragState] = useState(null); // Active drag: { id, offsetX, offsetY }
+    const [boxStates, setBoxStates] = useState({}); // { [id]: { x, y, customLabel } }
 
     /* ═══════════════════════════════════════════════════════════════════════
      *  SOURCE SYNCHRONIZATION
@@ -31,8 +30,8 @@ const DraggableBoxes = ({ sources = [], onRemove, onChannelChange }) => {
             sources.forEach((source, index) => {
                 if (!next[source.id]) {
                     next[source.id] = {
-                        x: 50 + ((index * 20) % 500),
-                        y: 100 + ((index * 80) % 500),
+                        x: 80 + ((index * 30) % 400),
+                        y: 80 + ((index * 50) % 300),
                         customLabel: null,
                     };
                     hasChanges = true;
@@ -53,56 +52,26 @@ const DraggableBoxes = ({ sources = [], onRemove, onChannelChange }) => {
     }, [sources]);
 
     /* ═══════════════════════════════════════════════════════════════════════
-     *  DRAG HANDLING
-     *  - Track mouse movement during drag
-     *  - Update box positions in real-time
+     *  BOX COUNT REPORTING
      * ═══════════════════════════════════════════════════════════════════════ */
 
-    const dragRef = useRef(dragState);
-    dragRef.current = dragState;
-
     useEffect(() => {
-        const handleMouseMove = (e) => {
-            const currentDrag = dragRef.current;
-            if (!currentDrag) return;
-            const { id, offsetX, offsetY } = currentDrag;
-            setBoxStates((prev) => ({
-                ...prev,
-                [id]: {
-                    ...prev[id],
-                    x: e.clientX - offsetX,
-                    y: e.clientY - offsetY,
-                },
-            }));
-        };
-        const handleMouseUp = () => setDragState(null);
-
-        if (dragState) {
-            window.addEventListener('mousemove', handleMouseMove);
-            window.addEventListener('mouseup', handleMouseUp);
+        if (onBoxCountChange) {
+            onBoxCountChange(Object.keys(boxStates).length);
         }
-        return () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
-        };
-    }, [dragState]);
+    }, [boxStates, onBoxCountChange]);
 
     /* ═══════════════════════════════════════════════════════════════════════
      *  EVENT CALLBACKS (Memoized)
      *  - Prevent unnecessary Box re-renders
      * ═══════════════════════════════════════════════════════════════════════ */
 
-    const handleMouseDown = useCallback(
-        (e, id) => {
-            if (e.target.closest('button') || e.target.closest('input')) return;
-            const boxState = boxStates[id];
-            if (!boxState) return;
-            const offsetX = e.clientX - boxState.x;
-            const offsetY = e.clientY - boxState.y;
-            setDragState({ id, offsetX, offsetY });
-        },
-        [boxStates]
-    );
+    const handlePositionChange = useCallback((id, x, y) => {
+        setBoxStates((prev) => ({
+            ...prev,
+            [id]: { ...prev[id], x, y },
+        }));
+    }, []);
 
     const handleLabelChange = useCallback((id, newLabel) => {
         setBoxStates((prev) => ({
@@ -130,75 +99,50 @@ const DraggableBoxes = ({ sources = [], onRemove, onChannelChange }) => {
     );
 
     /* ═══════════════════════════════════════════════════════════════════════
+     *  STYLES
+     * ═══════════════════════════════════════════════════════════════════════ */
+
+    const styles = {
+        container: {
+            width: '100%',
+            height: '100vh',
+            position: 'relative',
+            overflow: 'hidden',
+            paddingTop: '50px',
+        },
+        emptyState: {
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            color: '#888',
+            textAlign: 'center',
+            pointerEvents: 'none',
+            fontFamily: 'Inter, sans-serif',
+        },
+    };
+
+    /* ═══════════════════════════════════════════════════════════════════════
      *  RENDER
      * ═══════════════════════════════════════════════════════════════════════ */
 
     return (
-        <div
-            style={{
-                width: '100%',
-                height: '100vh',
-                position: 'relative',
-                overflow: 'hidden',
-            }}
-        >
+        <div style={styles.container}>
             {/* ─────────────────────────────────────────────────────────────
-                STATUS BOX - System Monitor (Bottom Right)
-                Shows active sources count and debug JSON
+                EMPTY STATE - No Hardware Detected
             ───────────────────────────────────────────────────────────── */}
-            <div
-                style={{
-                    position: 'absolute',
-                    bottom: 15,
-                    right: 15,
-                    color: '#4ade80',
-                    fontSize: '11px',
-                    background: 'rgba(0,0,0,0.85)',
-                    padding: '12px 16px',
-                    borderRadius: '8px',
-                    border: '1px solid rgba(74, 222, 128, 0.2)',
-                    pointerEvents: 'none',
-                    zIndex: 9999,
-                    fontFamily: 'JetBrains Mono, monospace',
-                    lineHeight: '1.6',
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-                    backdropFilter: 'blur(10px)',
-                }}
-            >
-                <div
-                    style={{
-                        fontWeight: 'bold',
-                        marginBottom: '8px',
-                        color: '#6ee7b7',
-                        textTransform: 'uppercase',
-                        letterSpacing: '1px',
-                    }}
-                >
-                    System Monitor
+            {sources.length === 0 && (
+                <div style={styles.emptyState}>
+                    <div style={{ fontSize: '24px', marginBottom: '10px' }}>🎹</div>
+                    Waiting for MIDI CC data...
+                    <br />
+                    Turn a knob on your controller to create a box.
                 </div>
-                <div style={{ opacity: 0.8 }}>Active Sources: {sources.length}</div>
-                <div style={{ opacity: 0.8 }}>Active Boxes: {Object.keys(boxStates).length}</div>
-                {sources.length > 0 && (
-                    <pre
-                        style={{
-                            margin: '10px 0 0 0',
-                            fontSize: '9px',
-                            opacity: 0.6,
-                            maxHeight: '150px',
-                            overflow: 'auto',
-                            background: 'rgba(0,0,0,0.3)',
-                            padding: '8px',
-                            borderRadius: '4px',
-                        }}
-                    >
-                        {JSON.stringify(sources, null, 2)}
-                    </pre>
-                )}
-            </div>
+            )}
 
             {/* ─────────────────────────────────────────────────────────────
                 HARDWARE FLOATING BOXES
-                Each Box represents a MIDI device/channel
+                Each Box = one MIDI device/channel (uses react-draggable)
             ───────────────────────────────────────────────────────────── */}
             {sources.map((source) => {
                 const state = boxStates[source.id];
@@ -210,11 +154,10 @@ const DraggableBoxes = ({ sources = [], onRemove, onChannelChange }) => {
                         id={source.id}
                         label={source.label}
                         channel={source.channel}
-                        x={state.x}
-                        y={state.y}
+                        defaultX={state.x}
+                        defaultY={state.y}
                         customLabel={state.customLabel}
-                        isDragging={dragState?.id === source.id}
-                        onMouseDown={handleMouseDown}
+                        onPositionChange={handlePositionChange}
                         onLabelChange={handleLabelChange}
                         onChannelChange={handleChannelChange}
                         onDelete={handleDelete}
@@ -223,6 +166,8 @@ const DraggableBoxes = ({ sources = [], onRemove, onChannelChange }) => {
             })}
         </div>
     );
-};
+});
 
-export default DraggableBoxes;
+Canvas.displayName = 'Canvas';
+
+export default Canvas;
