@@ -62,11 +62,14 @@ function App() {
     });
   }
 
+  const [totalMessages, setTotalMessages] = useState(0);
+
   function onMIDISuccess(midiAccess) {
     const midiInputs = [];
     for (const input of midiAccess.inputs.values()) {
       midiInputs.push(input);
-      input.onmidimessage = getMIDIMessage;
+      // Pass the device name explicitly to avoid access issues
+      input.onmidimessage = (msg) => getMIDIMessage(msg, input.name);
     }
     setInputs(midiInputs);
 
@@ -82,27 +85,33 @@ function App() {
     console.error('Could not access your MIDI devices.');
   }
 
-  function getMIDIMessage(message) {
+  function getMIDIMessage(message, deviceName) {
+    // Debug: Log raw message
+    // console.log("Raw MIDI:", message.data);
+
     const [status, data1, data2] = message.data;
     const command = status & 0xF0;
     const channel = (status & 0x0F) + 1;
+
+    setTotalMessages(prev => prev + 1);
 
     // Only handle CC (176) and NoteOn (144) for discovery (though app spec said CC)
     if (command === 176 || command === 144) {
       const cc = data1; // or Note Number
       const val = data2; // Velocity or Value
-      const deviceName = message.currentTarget.name; // message.target might be null in some implementations, use currentTarget or fallback
+      // Fallback if deviceName wasn't passed (shouldn't happen with new logic)
+      const name = deviceName || message.currentTarget?.name || "Unknown Device";
 
       // Emit to Server
       socket.emit('midi:client:message', {
-        deviceName,
+        deviceName: name,
         channel,
         cc,
         value: val
       });
 
       // Also handle locally immediately for low latency UI
-      handleIncomingMidi({ deviceName, channel, cc, value: val });
+      handleIncomingMidi({ deviceName: name, channel, cc, value: val });
     }
   }
 
@@ -124,7 +133,7 @@ function App() {
       }}>
         <div style={{ fontWeight: 'bold' }}>MIDImachine</div>
         <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>
-          {socket.connected ? 'Server Connected' : 'Connecting...'} | {inputs.length} Devices Found
+          {socket.connected ? 'Server Connected' : 'Connecting...'} | {inputs.length} Devices | Rx: {totalMessages}
         </div>
       </div>
 
@@ -144,7 +153,8 @@ function App() {
           fontFamily: 'sans-serif'
         }}>
           Waiting for MIDI CC data...<br />
-          Turn a knob on your controller to create a box.
+          Turn a knob on your controller to create a box.<br />
+          <span style={{ fontSize: '0.8em', opacity: 0.6 }}>Received {totalMessages} messages</span>
         </div>
       )}
     </>
