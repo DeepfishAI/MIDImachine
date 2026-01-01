@@ -165,11 +165,35 @@ const DraggableBoxes = ({ sources = [] }) => {
 
     return (
         <div style={styles.container}>
-            {/* DEBUG OVERLAY */}
-            <div style={{ position: 'absolute', bottom: 10, right: 10, color: 'lime', fontSize: '10px', background: 'rgba(0,0,0,0.8)', padding: '5px', pointerEvents: 'none', zIndex: 9999 }}>
-                Sources: {sources.length}<br />
-                BoxStates: {Object.keys(boxStates).length}<br />
-                <pre>{JSON.stringify(sources, null, 2)}</pre>
+            {/* System Monitor */}
+            <div style={{
+                position: 'absolute',
+                bottom: 10,
+                right: 10,
+                color: '#4ade80', // Softer green
+                fontSize: '11px',
+                background: 'rgba(0,0,0,0.85)',
+                padding: '10px 12px',
+                borderRadius: '6px',
+                border: '1px solid rgba(74, 222, 128, 0.3)',
+                pointerEvents: 'none',
+                zIndex: 9999,
+                fontFamily: 'monospace',
+                lineHeight: '1.6',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+            }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '6px', color: '#6ee7b7' }}>System Monitor</div>
+                <div style={{ opacity: 0.9 }}>Active Sources: {sources.length}</div>
+                <div style={{ opacity: 0.9 }}>Active Boxes: {Object.keys(boxStates).length}</div>
+                {sources.length > 0 && (
+                    <pre style={{
+                        margin: '8px 0 0 0',
+                        fontSize: '9px',
+                        opacity: 0.7,
+                        maxHeight: '200px',
+                        overflow: 'auto'
+                    }}>{JSON.stringify(sources, null, 2)}</pre>
+                )}
             </div>
 
             {sources.map((source, index) => {

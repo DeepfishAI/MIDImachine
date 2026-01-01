@@ -116,7 +116,14 @@ function App() {
   }
 
   return (
-    <>
+    <div style={{
+      width: '100vw',
+      height: '100vh',
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      overflow: 'hidden'
+    }}>
       {/* Overlay Status Bar */}
       <div style={{
         position: 'fixed',
@@ -162,7 +169,7 @@ function App() {
           <span style={{ fontSize: '0.8em', opacity: 0.6 }}>Received {totalMessages} messages</span>
         </div>
       )}
-    </>
+    </div>
   )
 }
 
