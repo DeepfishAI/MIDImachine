@@ -173,20 +173,24 @@ const DraggableBoxes = ({ sources = [] }) => {
             </div>
 
             {sources.map((source, index) => {
-                // FORCE POSITION to guaranteed visible location
-                const state = boxStates[source.id] || { x: 100, y: 100 + (index * 200), customLabel: null };
-
                 const isDragging = dragState?.id === source.id;
                 const isEditing = editingId === source.id;
-                const displayLabel = state.customLabel || source.label;
+
+                // Get state if it exists, otherwise use defaults
+                const state = boxStates[source.id];
+                const displayLabel = state?.customLabel || source.label;
+
+                // DIRECT POSITION CALCULATION - no dependency on boxStates
+                const x = state?.x ?? (100 + (index * 50));
+                const y = state?.y ?? (150 + (index * 200));
 
                 return (
                     <div
                         key={source.id}
                         style={{
                             ...styles.box(isDragging),
-                            left: state.x,
-                            top: state.y,
+                            left: `${x}px`,
+                            top: `${y}px`,
                         }}
                         onMouseDown={(e) => handleMouseDown(e, source.id)}
                     >
