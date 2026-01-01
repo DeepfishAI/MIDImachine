@@ -1,15 +1,38 @@
-import React, { useState, useEffect, useRef } from 'react';
+/**
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                     MIDI MACHINE - DRAGGABLE BOXES                        ║
+ * ║  Renders device cards with drag, edit, channel control, conflict warnings ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
+ */
 
-// sources = [{ id: 'unique_string', label: 'Device Name', channel: 1 }]
-const DraggableBoxes = ({ sources = [] }) => {
-    // --- State ---
-    // boxStates: { [id]: { x, y, customLabel } }
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+
+const DraggableBoxes = ({ sources = [], conflicts = {}, onRemove }) => {
+    // ========================================================================
+    // STATE
+    // ========================================================================
+
     const [boxStates, setBoxStates] = useState({});
-    const [dragState, setDragState] = useState(null); // { id, offsetX, offsetY }
+    const [dragState, setDragState] = useState(null);
     const [editingId, setEditingId] = useState(null);
     const [tempLabel, setTempLabel] = useState('');
 
-    // Initialize new boxes with default positions
+    // ========================================================================
+    // DERIVED: Check if a source has conflict
+    // ========================================================================
+
+    const conflictingIds = useMemo(() => {
+        const ids = new Set();
+        Object.values(conflicts).forEach(deviceList => {
+            deviceList.forEach(d => ids.add(d.id));
+        });
+        return ids;
+    }, [conflicts]);
+
+    // ========================================================================
+    // INIT: Assign positions to new boxes
+    // ========================================================================
+
     useEffect(() => {
         setBoxStates(prev => {
             const next = { ...prev };
@@ -17,13 +40,20 @@ const DraggableBoxes = ({ sources = [] }) => {
 
             sources.forEach((source, index) => {
                 if (!next[source.id]) {
-                    // New box found! Assign default position
-                    // Stagger them so they don't stack perfectly
                     next[source.id] = {
-                        x: 50 + (index * 20) % 500,
-                        y: 100 + (index * 80) % 500,
-                        customLabel: null // Use source.label by default
+                        x: 80 + (index * 30) % 500,
+                        y: 120 + (index * 80) % 400,
+                        customLabel: null
                     };
+                    hasChanges = true;
+                }
+            });
+
+            // Cleanup removed sources
+            const currentIds = new Set(sources.map(s => s.id));
+            Object.keys(next).forEach(id => {
+                if (!currentIds.has(id)) {
+                    delete next[id];
                     hasChanges = true;
                 }
             });
@@ -32,23 +62,23 @@ const DraggableBoxes = ({ sources = [] }) => {
         });
     }, [sources]);
 
-    // --- Refs ---
+    // ========================================================================
+    // DRAG LOGIC
+    // ========================================================================
+
     const dragRef = useRef(dragState);
     dragRef.current = dragState;
 
-    // --- Event Handlers ---
-
     const handleMouseDown = (e, id) => {
         if (editingId === id) return;
-
-        // Get current pos from state
         const boxState = boxStates[id];
         if (!boxState) return;
 
-        const offsetX = e.clientX - boxState.x;
-        const offsetY = e.clientY - boxState.y;
-
-        setDragState({ id, offsetX, offsetY });
+        setDragState({
+            id,
+            offsetX: e.clientX - boxState.x,
+            offsetY: e.clientY - boxState.y
+        });
     };
 
     useEffect(() => {
@@ -56,21 +86,17 @@ const DraggableBoxes = ({ sources = [] }) => {
             const currentDrag = dragRef.current;
             if (!currentDrag) return;
 
-            const { id, offsetX, offsetY } = currentDrag;
-
             setBoxStates(prev => ({
                 ...prev,
-                [id]: {
-                    ...prev[id],
-                    x: e.clientX - offsetX,
-                    y: e.clientY - offsetY
+                [currentDrag.id]: {
+                    ...prev[currentDrag.id],
+                    x: e.clientX - currentDrag.offsetX,
+                    y: e.clientY - currentDrag.offsetY
                 }
             }));
         };
 
-        const handleMouseUp = () => {
-            setDragState(null);
-        };
+        const handleMouseUp = () => setDragState(null);
 
         if (dragState) {
             window.addEventListener('mousemove', handleMouseMove);
@@ -83,7 +109,9 @@ const DraggableBoxes = ({ sources = [] }) => {
         };
     }, [dragState]);
 
-    // --- Editing Handlers ---
+    // ========================================================================
+    // LABEL EDITING
+    // ========================================================================
 
     const startEditing = (id, currentLabel) => {
         setEditingId(id);
@@ -102,14 +130,17 @@ const DraggableBoxes = ({ sources = [] }) => {
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter') saveLabel();
+        if (e.key === 'Escape') setEditingId(null);
     };
 
-    // --- Channel Scroll Handler ---
+    // ========================================================================
+    // CHANNEL SCROLL
+    // ========================================================================
+
     const handleChannelScroll = (e, sourceId, currentChannel) => {
         e.preventDefault();
         e.stopPropagation();
 
-        // Scroll up = increase channel, scroll down = decrease
         const delta = e.deltaY < 0 ? 1 : -1;
         const newChannel = Math.max(1, Math.min(16, currentChannel + delta));
 
@@ -118,7 +149,9 @@ const DraggableBoxes = ({ sources = [] }) => {
         }
     };
 
-    // --- Styles ---
+    // ========================================================================
+    // STYLES
+    // ========================================================================
 
     const styles = {
         container: {
@@ -126,116 +159,149 @@ const DraggableBoxes = ({ sources = [] }) => {
             height: '100vh',
             position: 'relative',
             overflow: 'hidden',
+            paddingTop: '50px'
         },
-        box: (isDragging) => ({
+        box: (isDragging, hasConflict) => ({
             position: 'absolute',
-            width: '300px',
-            height: '150px',
-            backgroundColor: '#ff00ff', // BRIGHT MAGENTA
+            width: '220px',
+            height: '100px',
+            backgroundColor: hasConflict ? '#2a1a1a' : '#1a1a1a',
             borderRadius: '12px',
-            boxShadow: '0 0 50px rgba(255,0,255,0.8)',
+            boxShadow: isDragging
+                ? '0 0 40px rgba(255,0,255,0.5)'
+                : hasConflict
+                    ? '0 0 20px rgba(255,75,75,0.3)'
+                    : '0 4px 20px rgba(0,0,0,0.5)',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: isDragging ? 'grabbing' : 'grab',
             transform: isDragging ? 'scale(1.02)' : 'scale(1)',
-            transition: 'box-shadow 0.1s, transform 0.1s',
-            zIndex: isDragging ? 10000 : 5000, // VERY HIGH Z-INDEX
-            border: '5px solid #00ff00' // BRIGHT GREEN BORDER
+            transition: 'box-shadow 0.15s, transform 0.15s',
+            border: hasConflict
+                ? '2px solid #ff4b4b'
+                : isDragging
+                    ? '2px solid #ff00ff'
+                    : '1px solid #333',
+            zIndex: isDragging ? 10000 : 5000
         }),
+        deleteBtn: {
+            position: 'absolute',
+            top: '8px',
+            right: '8px',
+            background: 'rgba(255,75,75,0.1)',
+            border: 'none',
+            color: '#ff4b4b',
+            width: '22px',
+            height: '22px',
+            borderRadius: '50%',
+            cursor: 'pointer',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+        },
         label: {
-            fontFamily: 'sans-serif',
+            fontFamily: 'system-ui, sans-serif',
             fontSize: '14px',
             fontWeight: '600',
-            color: '#333',
+            color: '#eee',
             cursor: 'text',
-            marginBottom: '4px',
+            marginBottom: '8px',
             textAlign: 'center',
             maxWidth: '90%',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis'
         },
-        channelBadge: {
-            fontSize: '11px',
-            color: '#ff00ff',
-            backgroundColor: 'rgba(255,0,255,0.15)',
-            padding: '4px 12px',
-            borderRadius: '10px',
+        channelBadge: (hasConflict) => ({
+            fontSize: '12px',
+            color: hasConflict ? '#ff4b4b' : '#ff00ff',
+            backgroundColor: hasConflict
+                ? 'rgba(255,75,75,0.2)'
+                : 'rgba(255,0,255,0.15)',
+            padding: '4px 14px',
+            borderRadius: '12px',
             fontFamily: 'monospace',
+            fontWeight: 'bold',
             cursor: 'ns-resize',
             userSelect: 'none',
-            border: '1px solid rgba(255,0,255,0.3)',
-            transition: 'background 0.2s, transform 0.1s',
+            border: hasConflict
+                ? '1px solid rgba(255,75,75,0.4)'
+                : '1px solid rgba(255,0,255,0.3)',
+            transition: 'all 0.15s'
+        }),
+        conflictBadge: {
+            position: 'absolute',
+            top: '8px',
+            left: '8px',
+            background: 'rgba(255,75,75,0.9)',
+            color: '#fff',
+            fontSize: '10px',
+            fontWeight: 'bold',
+            padding: '2px 6px',
+            borderRadius: '4px'
         },
         input: {
-            fontFamily: 'sans-serif',
+            fontFamily: 'system-ui, sans-serif',
             fontSize: '14px',
             textAlign: 'center',
-            border: '1px solid #ccc',
-            borderRadius: '4px',
-            padding: '4px',
+            border: '1px solid #ff00ff',
+            borderRadius: '6px',
+            padding: '6px',
             width: '80%',
-            outline: 'none',
+            background: '#000',
+            color: '#fff',
+            outline: 'none'
         }
     };
 
+    // ========================================================================
+    // RENDER
+    // ========================================================================
+
     return (
         <div style={styles.container}>
-            {/* System Monitor */}
-            <div style={{
-                position: 'absolute',
-                bottom: 10,
-                right: 10,
-                color: '#4ade80', // Softer green
-                fontSize: '11px',
-                background: 'rgba(0,0,0,0.85)',
-                padding: '10px 12px',
-                borderRadius: '6px',
-                border: '1px solid rgba(74, 222, 128, 0.3)',
-                pointerEvents: 'none',
-                zIndex: 9999,
-                fontFamily: 'monospace',
-                lineHeight: '1.6',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-            }}>
-                <div style={{ fontWeight: 'bold', marginBottom: '6px', color: '#6ee7b7' }}>System Monitor</div>
-                <div style={{ opacity: 0.9 }}>Active Sources: {sources.length}</div>
-                <div style={{ opacity: 0.9 }}>Active Boxes: {Object.keys(boxStates).length}</div>
-                {sources.length > 0 && (
-                    <pre style={{
-                        margin: '8px 0 0 0',
-                        fontSize: '9px',
-                        opacity: 0.7,
-                        maxHeight: '200px',
-                        overflow: 'auto'
-                    }}>{JSON.stringify(sources, null, 2)}</pre>
-                )}
-            </div>
-
             {sources.map((source, index) => {
+                const state = boxStates[source.id];
+                if (!state) return null;
+
                 const isDragging = dragState?.id === source.id;
                 const isEditing = editingId === source.id;
-
-                // Get state if it exists, otherwise use defaults
-                const state = boxStates[source.id];
-                const displayLabel = state?.customLabel || source.label;
-
-                // DIRECT POSITION CALCULATION - no dependency on boxStates
-                const x = state?.x ?? (100 + (index * 50));
-                const y = state?.y ?? (150 + (index * 200));
+                const displayLabel = state.customLabel || source.label;
+                const hasConflict = conflictingIds.has(source.id);
 
                 return (
                     <div
                         key={source.id}
                         style={{
-                            ...styles.box(isDragging),
-                            left: `${x}px`,
-                            top: `${y}px`,
+                            ...styles.box(isDragging, hasConflict),
+                            left: state.x,
+                            top: state.y
                         }}
                         onMouseDown={(e) => handleMouseDown(e, source.id)}
                     >
+                        {/* Conflict Warning Badge */}
+                        {hasConflict && (
+                            <div style={styles.conflictBadge}>⚠ CONFLICT</div>
+                        )}
+
+                        {/* Delete Button */}
+                        {onRemove && (
+                            <button
+                                style={styles.deleteBtn}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onRemove(source.id);
+                                }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                            >
+                                ×
+                            </button>
+                        )}
+
+                        {/* Label */}
                         {isEditing ? (
                             <input
                                 autoFocus
@@ -250,16 +316,20 @@ const DraggableBoxes = ({ sources = [] }) => {
                             <span
                                 style={styles.label}
                                 onDoubleClick={() => startEditing(source.id, displayLabel)}
+                                title="Double-click to rename"
                             >
                                 {displayLabel}
                             </span>
                         )}
 
+                        {/* Channel Badge with scroll */}
                         <div
-                            style={styles.channelBadge}
+                            style={styles.channelBadge(hasConflict)}
                             onWheel={(e) => handleChannelScroll(e, source.id, source.channel)}
                             onMouseDown={(e) => e.stopPropagation()}
-                            title="Scroll to change channel (1-16)"
+                            title={hasConflict
+                                ? "⚠ Channel conflict! Scroll to change (1-16)"
+                                : "Scroll to change channel (1-16)"}
                         >
                             CH {source.channel}
                         </div>

@@ -1,108 +1,100 @@
-import { useEffect, useState } from 'react'
-import { io } from 'socket.io-client'
-import DraggableBoxes from './components/DraggableBoxes'
-import './App.css'
+/**
+ * ╔═══════════════════════════════════════════════════════════════════════════╗
+ * ║                          MIDI MACHINE - APP                               ║
+ * ║  Main application with channel management, conflict detection,           ║
+ * ║  config persistence, and socket.io sync                                   ║
+ * ╚═══════════════════════════════════════════════════════════════════════════╝
+ */
 
-const SERVER_URL = import.meta.env.PROD ? window.location.origin : "http://localhost:3000";
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { io } from 'socket.io-client';
+import DraggableBoxes from './components/DraggableBoxes';
+import {
+  loadConfig,
+  saveConfig,
+  findChannelConflicts,
+  getConflictSummary,
+  sendChannelUpdate,
+  baseName
+} from './utils/midi';
+import './App.css';
+
+const SERVER_URL = import.meta.env.PROD ? window.location.origin : 'http://localhost:3000';
 const socket = io(SERVER_URL);
 
 function App() {
+  // ========================================================================
+  // STATE
+  // ========================================================================
+
   const [inputs, setInputs] = useState([]);
-
-  // Track active MIDI sources: { id: "DeviceName_Ch1", label: "DeviceName", channel: 1 }
   const [sources, setSources] = useState([]);
+  const [totalMessages, setTotalMessages] = useState(0);
+  const [config, setConfig] = useState(() => loadConfig());
 
-  // Track messages for visual feedback (optional, maybe passed to boxes later)
-  const [messages, setMessages] = useState({});
+  // ========================================================================
+  // DERIVED STATE
+  // ========================================================================
 
-  useEffect(() => {
-    // --- Socket handlers ---
-    socket.on('connect', () => console.log('Connected to server'));
+  const conflictSummary = useMemo(() => getConflictSummary(sources), [sources]);
 
-    socket.on('midi:update', (data) => {
-      handleIncomingMidi(data);
+  // ========================================================================
+  // CONFIG PERSISTENCE
+  // ========================================================================
+
+  const saveCurrentConfig = useCallback(() => {
+    const channelMap = {};
+    sources.forEach(s => {
+      channelMap[baseName(s.label)] = s.channel;
     });
+    const newConfig = { ...config, channelMap };
+    setConfig(newConfig);
+    saveConfig(newConfig);
+  }, [sources, config]);
 
-    // --- Browser MIDI Access ---
-    if (navigator.requestMIDIAccess) {
-      navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
-    } else {
-      console.error("Web MIDI API not supported in this environment");
+  // Auto-save config when sources change
+  useEffect(() => {
+    if (sources.length > 0) {
+      saveCurrentConfig();
     }
+  }, [sources]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    return () => {
-      socket.off('connect');
-      socket.off('midi:update');
-    };
-  }, []);
+  // ========================================================================
+  // MIDI HANDLERS
+  // ========================================================================
 
-  function handleIncomingMidi(data) {
-    const { deviceName, channel, cc, value } = data;
-
-    // 1. Update Values
-    setMessages(prev => ({
-      ...prev,
-      [`${deviceName}_${channel}_${cc}`]: value
-    }));
-
-    // 2. Discover Source (Box)
-    // Unique ID for a "Box" is Device + Channel
+  const handleIncomingMidi = useCallback((data) => {
+    const { deviceName, channel } = data;
     const sourceId = `${deviceName}_ch${channel}`;
 
     setSources(prev => {
-      // Check if already exists
       if (prev.find(s => s.id === sourceId)) return prev;
 
-      // Add new source
+      // Check if we have a saved channel for this device base
+      const base = baseName(deviceName);
+      const savedChannel = config.channelMap[base];
+      const finalChannel = savedChannel !== undefined ? savedChannel : channel;
+
       return [...prev, {
         id: sourceId,
         label: deviceName,
-        channel: channel
+        channel: finalChannel
       }];
     });
-  }
+  }, [config.channelMap]);
 
-  const [totalMessages, setTotalMessages] = useState(0);
-
-  function onMIDISuccess(midiAccess) {
-    const midiInputs = [];
-    for (const input of midiAccess.inputs.values()) {
-      midiInputs.push(input);
-      // Pass the device name explicitly to avoid access issues
-      input.onmidimessage = (msg) => getMIDIMessage(msg, input.name);
-    }
-    setInputs(midiInputs);
-
-    midiAccess.onstatechange = (e) => {
-      // Refresh
-      const newInputs = [];
-      for (const input of midiAccess.inputs.values()) newInputs.push(input);
-      setInputs(newInputs);
-    };
-  }
-
-  function onMIDIFailure() {
-    console.error('Could not access your MIDI devices.');
-  }
-
-  function getMIDIMessage(message, deviceName) {
-    // Debug: Log raw message
-    // console.log("Raw MIDI:", message.data);
-
+  const getMIDIMessage = useCallback((message, deviceName) => {
     const [status, data1, data2] = message.data;
-    const command = status & 0xF0;
-    const channel = (status & 0x0F) + 1;
+    const command = status & 0xf0;
+    const channel = (status & 0x0f) + 1;
 
     setTotalMessages(prev => prev + 1);
 
-    // Only handle CC (176) and NoteOn (144) for discovery (though app spec said CC)
-    if (command === 176 || command === 144) {
-      const cc = data1; // or Note Number
-      const val = data2; // Velocity or Value
-      // Fallback if deviceName wasn't passed (shouldn't happen with new logic)
-      const name = deviceName || message.currentTarget?.name || "Unknown Device";
+    if (command === 176 || command === 144 || command === 128) {
+      const cc = data1;
+      const val = data2;
+      const name = deviceName || 'Unknown Device';
 
-      // Emit to Server
       socket.emit('midi:client:message', {
         deviceName: name,
         channel,
@@ -110,10 +102,87 @@ function App() {
         value: val
       });
 
-      // Also handle locally immediately for low latency UI
       handleIncomingMidi({ deviceName: name, channel, cc, value: val });
     }
-  }
+  }, [handleIncomingMidi]);
+
+  const onMIDIFailure = useCallback(() => {
+    console.error('Could not access MIDI devices');
+  }, []);
+
+  const onMIDISuccess = useCallback((midiAccess) => {
+    const midiInputs = [];
+    for (const input of midiAccess.inputs.values()) {
+      midiInputs.push(input);
+      input.onmidimessage = (msg) => getMIDIMessage(msg, input.name);
+    }
+    setInputs(midiInputs);
+
+    midiAccess.onstatechange = () => {
+      const newInputs = [];
+      for (const input of midiAccess.inputs.values()) {
+        newInputs.push(input);
+        input.onmidimessage = (msg) => getMIDIMessage(msg, input.name);
+      }
+      setInputs(newInputs);
+    };
+  }, [getMIDIMessage]);
+
+  // ========================================================================
+  // CHANNEL UPDATE (exposed to children)
+  // ========================================================================
+
+  const updateSourceChannel = useCallback((sourceId, newChannel) => {
+    setSources(prev => prev.map(s => {
+      if (s.id === sourceId) {
+        // Send update via socket
+        sendChannelUpdate(socket, s.label, newChannel);
+        return { ...s, channel: newChannel };
+      }
+      return s;
+    }));
+  }, []);
+
+  // Expose to window for child components
+  useEffect(() => {
+    window.appUpdateChannel = updateSourceChannel;
+  }, [updateSourceChannel]);
+
+  // ========================================================================
+  // EFFECTS
+  // ========================================================================
+
+  useEffect(() => {
+    socket.on('connect', () => console.log('Connected to server'));
+    socket.on('midi:update', handleIncomingMidi);
+
+    if (navigator.requestMIDIAccess) {
+      navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
+    }
+
+    return () => {
+      socket.off('connect');
+      socket.off('midi:update');
+    };
+  }, [handleIncomingMidi, onMIDISuccess, onMIDIFailure]);
+
+  // ========================================================================
+  // ACTIONS
+  // ========================================================================
+
+  const rescan = useCallback(() => {
+    if (navigator.requestMIDIAccess) {
+      navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
+    }
+  }, [onMIDISuccess, onMIDIFailure]);
+
+  const removeSource = useCallback((id) => {
+    setSources(prev => prev.filter(s => s.id !== id));
+  }, []);
+
+  // ========================================================================
+  // RENDER
+  // ========================================================================
 
   return (
     <div style={{
@@ -124,53 +193,120 @@ function App() {
       left: 0,
       overflow: 'hidden'
     }}>
-      {/* Overlay Status Bar */}
+      {/* Header Bar */}
       <div style={{
         position: 'fixed',
         top: 0,
         left: 0,
         width: '100%',
-        padding: '10px 20px',
-        background: 'rgba(0,0,0,0.8)',
+        height: '40px',
+        padding: '8px 20px',
+        background: 'rgba(0,0,0,0.9)',
         color: '#fff',
         zIndex: 1000,
         display: 'flex',
         justifyContent: 'space-between',
-        pointerEvents: 'none' // Let clicks pass through to canvas
+        alignItems: 'center',
+        borderBottom: conflictSummary.hasConflicts
+          ? '2px solid #ff4b4b'
+          : '1px solid #333',
+        boxSizing: 'border-box'
       }}>
-        <div style={{ fontWeight: 'bold', color: '#0f0' }}>MIDImachine v2 (DEBUG)</div>
-        <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>
-          {socket.connected ? 'Connected' : 'Connecting...'} | {inputs.length} HW Devices | Rx: {totalMessages} | Sources: {sources.length}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <span style={{ fontWeight: 'bold', color: '#0f0' }}>MIDImachine</span>
+          <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>
+            {socket.connected ? '● Connected' : '○ Connecting...'}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', fontSize: '0.8rem' }}>
+          {conflictSummary.hasConflicts && (
+            <span style={{
+              color: '#ff4b4b',
+              background: 'rgba(255,75,75,0.2)',
+              padding: '2px 8px',
+              borderRadius: '4px'
+            }}>
+              ⚠ {conflictSummary.deviceCount} conflicts
+            </span>
+          )}
+          <span style={{ opacity: 0.7 }}>
+            {inputs.length} Devices | {sources.length} Sources | {totalMessages} Rx
+          </span>
+          <button
+            onClick={rescan}
+            style={{
+              background: '#333',
+              border: '1px solid #555',
+              color: '#fff',
+              padding: '4px 10px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '0.75rem'
+            }}
+          >
+            Rescan
+          </button>
         </div>
       </div>
 
-      {/* RAW DATA DEBUG */}
-      <div style={{ position: 'fixed', top: 50, left: 10, color: 'yellow', opacity: 0.5, pointerEvents: 'none' }}>
-        Sources Data: {JSON.stringify(sources)}
-      </div>
+      {/* Main Canvas */}
+      <DraggableBoxes
+        sources={sources}
+        conflicts={conflictSummary.conflicts}
+        onRemove={removeSource}
+      />
 
-      {/* Main Canvas Area */}
-      <DraggableBoxes sources={sources} />
-
-      {/* Helper for empty state */}
+      {/* Empty State */}
       {sources.length === 0 && (
         <div style={{
           position: 'absolute',
           top: '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
-          color: '#888',
+          color: '#666',
           textAlign: 'center',
           pointerEvents: 'none',
-          fontFamily: 'sans-serif'
+          fontFamily: 'system-ui, sans-serif'
         }}>
-          Waiting for MIDI CC data...<br />
-          Turn a knob on your controller to create a box.<br />
-          <span style={{ fontSize: '0.8em', opacity: 0.6 }}>Received {totalMessages} messages</span>
+          <div style={{ fontSize: '1.2rem', marginBottom: '8px' }}>
+            Waiting for MIDI CC data...
+          </div>
+          <div style={{ fontSize: '0.9rem', opacity: 0.6 }}>
+            Turn a knob on your controller to create a box
+          </div>
+          <div style={{ fontSize: '0.75rem', opacity: 0.4, marginTop: '12px' }}>
+            {totalMessages} messages received
+          </div>
         </div>
       )}
+
+      {/* System Monitor */}
+      <div style={{
+        position: 'fixed',
+        bottom: 10,
+        right: 10,
+        color: '#4ade80',
+        fontSize: '11px',
+        background: 'rgba(0,0,0,0.85)',
+        padding: '10px 12px',
+        borderRadius: '6px',
+        border: conflictSummary.hasConflicts
+          ? '1px solid rgba(255,75,75,0.5)'
+          : '1px solid rgba(74,222,128,0.3)',
+        pointerEvents: 'none',
+        zIndex: 9999,
+        maxWidth: '280px'
+      }}>
+        <div>Sources: {sources.length} | HW: {inputs.length}</div>
+        {conflictSummary.hasConflicts && (
+          <div style={{ color: '#ff4b4b', marginTop: '4px' }}>
+            ⚠ {Object.keys(conflictSummary.conflicts).length} channel conflicts
+          </div>
+        )}
+      </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
