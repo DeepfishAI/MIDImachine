@@ -213,7 +213,7 @@ function App() {
         boxSizing: 'border-box'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <span style={{ fontWeight: 'bold', color: '#0f0' }}>MIDImachine</span>
+          <span style={{ fontWeight: 'bold', color: '#0f0' }}>MIDImachine v3</span>
           <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>
             {socket.connected ? '● Connected' : '○ Connecting...'}
           </span>
