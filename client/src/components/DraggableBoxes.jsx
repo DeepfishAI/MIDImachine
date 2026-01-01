@@ -167,10 +167,16 @@ const DraggableBoxes = ({ sources = [] }) => {
 
     return (
         <div style={styles.container}>
+            {/* DEBUG OVERLAY */}
+            <div style={{ position: 'absolute', bottom: 10, right: 10, color: 'lime', fontSize: '10px', background: 'rgba(0,0,0,0.8)', padding: '5px', pointerEvents: 'none', zIndex: 9999 }}>
+                Sources: {sources.length}<br />
+                BoxStates: {Object.keys(boxStates).length}<br />
+                <pre>{JSON.stringify(sources, null, 2)}</pre>
+            </div>
+
             {sources.map(source => {
-                // If we haven't initialized state for this source yet, skip render (will catch up in effect)
-                const state = boxStates[source.id];
-                if (!state) return null;
+                // FALLBACK: If state is missing, render at default pos instead of null
+                const state = boxStates[source.id] || { x: 50, y: 100, customLabel: null };
 
                 const isDragging = dragState?.id === source.id;
                 const isEditing = editingId === source.id;
@@ -183,6 +189,7 @@ const DraggableBoxes = ({ sources = [] }) => {
                             ...styles.box(isDragging),
                             left: state.x,
                             top: state.y,
+                            border: '2px solid red' // Temporary debug border
                         }}
                         onMouseDown={(e) => handleMouseDown(e, source.id)}
                     >
