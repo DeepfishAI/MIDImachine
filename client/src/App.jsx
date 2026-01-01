@@ -131,10 +131,15 @@ function App() {
         justifyContent: 'space-between',
         pointerEvents: 'none' // Let clicks pass through to canvas
       }}>
-        <div style={{ fontWeight: 'bold' }}>MIDImachine</div>
+        <div style={{ fontWeight: 'bold', color: '#0f0' }}>MIDImachine v2 (DEBUG)</div>
         <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>
-          {socket.connected ? 'Server Connected' : 'Connecting...'} | {inputs.length} Devices | Rx: {totalMessages}
+          {socket.connected ? 'Connected' : 'Connecting...'} | {inputs.length} HW Devices | Rx: {totalMessages} | Sources: {sources.length}
         </div>
+      </div>
+
+      {/* RAW DATA DEBUG */}
+      <div style={{ position: 'fixed', top: 50, left: 10, color: 'yellow', opacity: 0.5, pointerEvents: 'none' }}>
+        Sources Data: {JSON.stringify(sources)}
       </div>
 
       {/* Main Canvas Area */}
