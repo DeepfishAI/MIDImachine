@@ -1,0 +1,15 @@
+{
+    "name": "midimachine",
+    "version": "1.0.0",
+    "description": "MIDImachine - Node/React Web App",
+    "scripts": {
+        "postinstall": "npm run install-all",
+        "install-all": "cd client && npm install && cd ../server && npm install",
+        "build": "cd client && npm run build",
+        "start": "cd server && npm start"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "dependencies": {}
+}

@@ -1,0 +1,23 @@
+{
+    "name": "midimachine-server",
+    "version": "1.0.0",
+    "description": "Backend for MIDImachine",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "keywords": [
+        "midi",
+        "node",
+        "socket.io",
+        "railway"
+    ],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "cors": "^2.8.5",
+        "dotenv": "^16.3.1",
+        "express": "^4.18.2",
+        "socket.io": "^4.7.2"
+    }
+}
