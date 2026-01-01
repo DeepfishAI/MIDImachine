@@ -1,44 +1,66 @@
 import { useEffect, useState } from 'react'
 import { io } from 'socket.io-client'
+import DraggableBoxes from './components/DraggableBoxes'
 import './App.css'
 
-// Connect to backend (relative path for production, localhost for dev)
-// Vitest/Vite proxy usually handles /socket.io in dev if configured, 
-// or we assume localhost:3000 for dev.
 const SERVER_URL = import.meta.env.PROD ? window.location.origin : "http://localhost:3000";
 const socket = io(SERVER_URL);
 
 function App() {
   const [inputs, setInputs] = useState([]);
-  const [activeDevice, setActiveDevice] = useState(null);
-  const [messages, setMessages] = useState({}); // { ch_cc: val }
+
+  // Track active MIDI sources: { id: "DeviceName_Ch1", label: "DeviceName", channel: 1 }
+  const [sources, setSources] = useState([]);
+
+  // Track messages for visual feedback (optional, maybe passed to boxes later)
+  const [messages, setMessages] = useState({});
 
   useEffect(() => {
-    // 1. Socket Locals
+    // --- Socket handlers ---
     socket.on('connect', () => console.log('Connected to server'));
 
-    socket.on('state:full', (state) => {
-      // Hydrate initial state if we want persistence
-      // For now, we prefer showing Real-time data
-    });
-
     socket.on('midi:update', (data) => {
-      // Update local viz from Server broadcast (mirroring what we sent + others)
-      // Key: ${data.channel}_${data.cc}
-      setMessages(prev => ({
-        ...prev,
-        [`${data.channel}_${data.cc}`]: data.value
-      }));
+      handleIncomingMidi(data);
     });
 
-    // 2. Browser MIDI Access
-    navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
+    // --- Browser MIDI Access ---
+    if (navigator.requestMIDIAccess) {
+      navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
+    } else {
+      console.error("Web MIDI API not supported in this environment");
+    }
 
     return () => {
       socket.off('connect');
       socket.off('midi:update');
     };
   }, []);
+
+  function handleIncomingMidi(data) {
+    const { deviceName, channel, cc, value } = data;
+
+    // 1. Update Values
+    setMessages(prev => ({
+      ...prev,
+      [`${deviceName}_${channel}_${cc}`]: value
+    }));
+
+    // 2. Discover Source (Box)
+    // Unique ID for a "Box" is Device + Channel
+    const sourceId = `${deviceName}_ch${channel}`;
+
+    setSources(prev => {
+      // Check if already exists
+      if (prev.find(s => s.id === sourceId)) return prev;
+
+      // Add new source
+      return [...prev, {
+        id: sourceId,
+        label: deviceName,
+        channel: channel
+      }];
+    });
+  }
 
   function onMIDISuccess(midiAccess) {
     const midiInputs = [];
@@ -47,12 +69,9 @@ function App() {
       input.onmidimessage = getMIDIMessage;
     }
     setInputs(midiInputs);
-    // Auto select first?
-    if (midiInputs.length > 0) setActiveDevice(midiInputs[0].name);
 
     midiAccess.onstatechange = (e) => {
-      console.log("MIDI State Change", e.port.name, e.port.state);
-      // Refresh inputs
+      // Refresh
       const newInputs = [];
       for (const input of midiAccess.inputs.values()) newInputs.push(input);
       setInputs(newInputs);
@@ -67,61 +86,68 @@ function App() {
     const [status, data1, data2] = message.data;
     const command = status & 0xF0;
     const channel = (status & 0x0F) + 1;
-    const type = command === 176 ? 'CC' : command === 144 ? 'NoteOn' : 'Other';
 
-    // Only handle CC for now as per requirements
-    if (command === 176) {
-      const cc = data1;
-      const val = data2;
+    // Only handle CC (176) and NoteOn (144) for discovery (though app spec said CC)
+    if (command === 176 || command === 144) {
+      const cc = data1; // or Note Number
+      const val = data2; // Velocity or Value
+      const deviceName = message.currentTarget.name; // message.target might be null in some implementations, use currentTarget or fallback
 
       // Emit to Server
-      // We get the device name from the input object usually, but here 'message.target.name'
-      const deviceName = message.target.name;
-
       socket.emit('midi:client:message', {
         deviceName,
         channel,
         cc,
         value: val
       });
+
+      // Also handle locally immediately for low latency UI
+      handleIncomingMidi({ deviceName, channel, cc, value: val });
     }
   }
 
   return (
-    <div className="container">
-      <h1>MIDImachine</h1>
-
-      <div className="status-bar">
-        <span>Server: {socket.connected ? 'OK' : 'Disconnected'}</span>
-        <span> | </span>
-        <span>Found {inputs.length} Devices</span>
+    <>
+      {/* Overlay Status Bar */}
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        padding: '10px 20px',
+        background: 'rgba(0,0,0,0.8)',
+        color: '#fff',
+        zIndex: 1000,
+        display: 'flex',
+        justifyContent: 'space-between',
+        pointerEvents: 'none' // Let clicks pass through to canvas
+      }}>
+        <div style={{ fontWeight: 'bold' }}>MIDImachine</div>
+        <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>
+          {socket.connected ? 'Server Connected' : 'Connecting...'} | {inputs.length} Devices Found
+        </div>
       </div>
 
-      <div className="device-list">
-        {inputs.map(input => (
-          <div key={input.id} className="device-card">
-            <h3>{input.name}</h3>
-            <p>Manufacturer: {input.manufacturer}</p>
-            <div className="led-indicator active"></div>
-          </div>
-        ))}
-        {inputs.length === 0 && <p className="no-devices">No MIDI Devices Detected</p>}
-      </div>
+      {/* Main Canvas Area */}
+      <DraggableBoxes sources={sources} />
 
-      <div className="monitor-grid">
-        {/* Simple visualization of last 10 CCs or just a grid of values */}
-        {Object.entries(messages).map(([key, val]) => {
-          const [ch, cc] = key.split('_');
-          return (
-            <div key={key} className="cc-knob">
-              <div className="knob-label">CH {ch} | CC {cc}</div>
-              <div className="knob-value">{val}</div>
-              <div className="knob-bar" style={{ height: `${(val / 127) * 100}%` }}></div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
+      {/* Helper for empty state */}
+      {sources.length === 0 && (
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          color: '#888',
+          textAlign: 'center',
+          pointerEvents: 'none',
+          fontFamily: 'sans-serif'
+        }}>
+          Waiting for MIDI CC data...<br />
+          Turn a knob on your controller to create a box.
+        </div>
+      )}
+    </>
   )
 }
 
