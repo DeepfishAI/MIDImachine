@@ -104,6 +104,20 @@ const DraggableBoxes = ({ sources = [] }) => {
         if (e.key === 'Enter') saveLabel();
     };
 
+    // --- Channel Scroll Handler ---
+    const handleChannelScroll = (e, sourceId, currentChannel) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Scroll up = increase channel, scroll down = decrease
+        const delta = e.deltaY < 0 ? 1 : -1;
+        const newChannel = Math.max(1, Math.min(16, currentChannel + delta));
+
+        if (newChannel !== currentChannel && window.appUpdateChannel) {
+            window.appUpdateChannel(sourceId, newChannel);
+        }
+    };
+
     // --- Styles ---
 
     const styles = {
@@ -145,11 +159,15 @@ const DraggableBoxes = ({ sources = [] }) => {
         },
         channelBadge: {
             fontSize: '11px',
-            color: '#888',
-            backgroundColor: '#f0f0f0',
-            padding: '2px 8px',
+            color: '#ff00ff',
+            backgroundColor: 'rgba(255,0,255,0.15)',
+            padding: '4px 12px',
             borderRadius: '10px',
-            fontFamily: 'monospace'
+            fontFamily: 'monospace',
+            cursor: 'ns-resize',
+            userSelect: 'none',
+            border: '1px solid rgba(255,0,255,0.3)',
+            transition: 'background 0.2s, transform 0.1s',
         },
         input: {
             fontFamily: 'sans-serif',
@@ -237,7 +255,12 @@ const DraggableBoxes = ({ sources = [] }) => {
                             </span>
                         )}
 
-                        <div style={styles.channelBadge}>
+                        <div
+                            style={styles.channelBadge}
+                            onWheel={(e) => handleChannelScroll(e, source.id, source.channel)}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            title="Scroll to change channel (1-16)"
+                        >
                             CH {source.channel}
                         </div>
                     </div>
