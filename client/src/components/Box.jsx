@@ -2,13 +2,16 @@
  * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                            MIDI MACHINE - BOX                             ║
  * ║  Hardware device card with drag, label editing, channel editing, delete  ║
- * ║  Uses react-draggable for positioning + Radix UI for modals              ║
+ * ║  Uses: react-draggable, Radix Dialog, ContextMenu, DropdownMenu, Tooltip ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 
 import React, { useState, memo } from 'react';
 import Draggable from 'react-draggable';
 import * as Dialog from '@radix-ui/react-dialog';
+import * as ContextMenu from '@radix-ui/react-context-menu';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Tooltip from '@radix-ui/react-tooltip';
 
 const Box = memo(
     ({
@@ -28,9 +31,7 @@ const Box = memo(
          * ═══════════════════════════════════════════════════════════════════════ */
 
         const [isEditingLabel, setIsEditingLabel] = useState(false);
-        const [isEditingChannel, setIsEditingChannel] = useState(false);
         const [tempLabel, setTempLabel] = useState('');
-        const [tempChannel, setTempChannel] = useState('');
         const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
         const [isDragging, setIsDragging] = useState(false);
 
@@ -56,25 +57,11 @@ const Box = memo(
         };
 
         /* ═══════════════════════════════════════════════════════════════════════
-         *  CHANNEL EDITING
+         *  CHANNEL CHANGE (via dropdown)
          * ═══════════════════════════════════════════════════════════════════════ */
 
-        const startEditingChannel = () => {
-            setIsEditingChannel(true);
-            setTempChannel(channel.toString());
-        };
-
-        const saveChannel = () => {
-            const chan = parseInt(tempChannel);
-            if (!isNaN(chan) && chan >= 1 && chan <= 16) {
-                if (onChannelChange) onChannelChange(id, chan);
-            }
-            setIsEditingChannel(false);
-        };
-
-        const handleChannelKeyDown = (e) => {
-            if (e.key === 'Enter') saveChannel();
-            if (e.key === 'Escape') setIsEditingChannel(false);
+        const handleChannelSelect = (newChannel) => {
+            if (onChannelChange) onChannelChange(id, newChannel);
         };
 
         /* ═══════════════════════════════════════════════════════════════════════
@@ -88,7 +75,7 @@ const Box = memo(
         };
 
         /* ═══════════════════════════════════════════════════════════════════════
-         *  STYLES - BOX
+         *  STYLES
          * ═══════════════════════════════════════════════════════════════════════ */
 
         const styles = {
@@ -174,23 +161,64 @@ const Box = memo(
                 color: '#fff',
                 outline: 'none',
             },
-            channelInput: {
-                fontSize: '11px',
-                color: '#ff00ff',
-                backgroundColor: '#000',
-                padding: '2px 10px',
-                borderRadius: '10px',
-                fontFamily: 'monospace',
-                letterSpacing: '1px',
-                border: '1px solid #ff00ff',
-                width: '40px',
-                textAlign: 'center',
+            // Context Menu Styles
+            contextMenu: {
+                background: '#1a1a1a',
+                border: '1px solid #333',
+                borderRadius: '8px',
+                padding: '4px',
+                minWidth: '160px',
+                boxShadow: '0 10px 40px rgba(0,0,0,0.8)',
+                zIndex: 30000,
+            },
+            contextMenuItem: {
+                padding: '8px 12px',
+                fontSize: '13px',
+                color: '#eee',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
                 outline: 'none',
+            },
+            contextMenuItemDanger: {
+                color: '#ff4b4b',
+            },
+            // Dropdown Menu Styles
+            dropdownContent: {
+                background: '#1a1a1a',
+                border: '1px solid #333',
+                borderRadius: '8px',
+                padding: '4px',
+                minWidth: '80px',
+                maxHeight: '200px',
+                overflowY: 'auto',
+                boxShadow: '0 10px 40px rgba(0,0,0,0.8)',
+                zIndex: 30000,
+            },
+            dropdownItem: {
+                padding: '6px 12px',
+                fontSize: '12px',
+                color: '#eee',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                outline: 'none',
+                fontFamily: 'monospace',
+            },
+            // Tooltip Styles
+            tooltipContent: {
+                background: '#333',
+                color: '#fff',
+                padding: '6px 10px',
+                borderRadius: '4px',
+                fontSize: '11px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
             },
         };
 
         /* ═══════════════════════════════════════════════════════════════════════
-         *  STYLES - DELETE DIALOG (Radix UI)
+         *  DIALOG STYLES
          * ═══════════════════════════════════════════════════════════════════════ */
 
         const dialogStyles = {
@@ -245,72 +273,161 @@ const Box = memo(
 
         return (
             <>
-                <Draggable
-                    defaultPosition={{ x: defaultX, y: defaultY }}
-                    onStart={handleDragStart}
-                    onStop={handleDragStop}
-                    cancel="input, button"
-                >
-                    <div style={styles.box}>
-                        {/* ─────────────────────────────────────────────────────
-                        HEADER - Delete Button
-                    ───────────────────────────────────────────────────── */}
-                        <div style={styles.header}>
-                            <button
-                                style={styles.deleteBtn}
-                                onClick={() => setShowDeleteConfirm(true)}
-                                onMouseOver={(e) =>
-                                    (e.target.style.background = 'rgba(255,75,75,0.2)')
-                                }
-                                onMouseOut={(e) =>
-                                    (e.target.style.background = 'rgba(255,255,255,0.1)')
-                                }
+                {/* ─────────────────────────────────────────────────────────────
+                    CONTEXT MENU - Right-click actions
+                ───────────────────────────────────────────────────────────── */}
+                <ContextMenu.Root>
+                    <ContextMenu.Trigger asChild>
+                        <div style={{ position: 'absolute' }}>
+                            <Draggable
+                                defaultPosition={{ x: defaultX, y: defaultY }}
+                                onStart={handleDragStart}
+                                onStop={handleDragStop}
+                                cancel="input, button"
                             >
-                                ×
-                            </button>
+                                <div style={styles.box}>
+                                    {/* HEADER - Delete Button */}
+                                    <div style={styles.header}>
+                                        <Tooltip.Provider>
+                                            <Tooltip.Root>
+                                                <Tooltip.Trigger asChild>
+                                                    <button
+                                                        style={styles.deleteBtn}
+                                                        onClick={() => setShowDeleteConfirm(true)}
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </Tooltip.Trigger>
+                                                <Tooltip.Portal>
+                                                    <Tooltip.Content
+                                                        style={styles.tooltipContent}
+                                                        sideOffset={5}
+                                                    >
+                                                        Remove card
+                                                    </Tooltip.Content>
+                                                </Tooltip.Portal>
+                                            </Tooltip.Root>
+                                        </Tooltip.Provider>
+                                    </div>
+
+                                    {/* LABEL - Device Name */}
+                                    {isEditingLabel ? (
+                                        <input
+                                            autoFocus
+                                            value={tempLabel}
+                                            onChange={(e) => setTempLabel(e.target.value)}
+                                            onBlur={saveLabel}
+                                            onKeyDown={handleLabelKeyDown}
+                                            style={styles.input}
+                                        />
+                                    ) : (
+                                        <Tooltip.Provider>
+                                            <Tooltip.Root>
+                                                <Tooltip.Trigger asChild>
+                                                    <span
+                                                        style={styles.label}
+                                                        onDoubleClick={startEditingLabel}
+                                                    >
+                                                        {displayLabel}
+                                                    </span>
+                                                </Tooltip.Trigger>
+                                                <Tooltip.Portal>
+                                                    <Tooltip.Content
+                                                        style={styles.tooltipContent}
+                                                        sideOffset={5}
+                                                    >
+                                                        Double-click to rename
+                                                    </Tooltip.Content>
+                                                </Tooltip.Portal>
+                                            </Tooltip.Root>
+                                        </Tooltip.Provider>
+                                    )}
+
+                                    {/* CHANNEL DROPDOWN */}
+                                    <DropdownMenu.Root>
+                                        <DropdownMenu.Trigger asChild>
+                                            <div style={styles.channelBadge}>CH {channel}</div>
+                                        </DropdownMenu.Trigger>
+                                        <DropdownMenu.Portal>
+                                            <DropdownMenu.Content
+                                                style={styles.dropdownContent}
+                                                sideOffset={5}
+                                            >
+                                                {[...Array(16)].map((_, i) => (
+                                                    <DropdownMenu.Item
+                                                        key={i + 1}
+                                                        style={{
+                                                            ...styles.dropdownItem,
+                                                            background:
+                                                                channel === i + 1
+                                                                    ? 'rgba(255,0,255,0.2)'
+                                                                    : 'transparent',
+                                                        }}
+                                                        onSelect={() => handleChannelSelect(i + 1)}
+                                                    >
+                                                        CH {i + 1}
+                                                    </DropdownMenu.Item>
+                                                ))}
+                                            </DropdownMenu.Content>
+                                        </DropdownMenu.Portal>
+                                    </DropdownMenu.Root>
+                                </div>
+                            </Draggable>
                         </div>
+                    </ContextMenu.Trigger>
 
-                        {/* ─────────────────────────────────────────────────────
-                        LABEL - Device Name (double-click to edit)
-                    ───────────────────────────────────────────────────── */}
-                        {isEditingLabel ? (
-                            <input
-                                autoFocus
-                                value={tempLabel}
-                                onChange={(e) => setTempLabel(e.target.value)}
-                                onBlur={saveLabel}
-                                onKeyDown={handleLabelKeyDown}
-                                style={styles.input}
+                    {/* Context Menu Content */}
+                    <ContextMenu.Portal>
+                        <ContextMenu.Content style={styles.contextMenu}>
+                            <ContextMenu.Item
+                                style={styles.contextMenuItem}
+                                onSelect={startEditingLabel}
+                            >
+                                ✏️ Rename
+                            </ContextMenu.Item>
+                            <ContextMenu.Sub>
+                                <ContextMenu.SubTrigger style={styles.contextMenuItem}>
+                                    🎛️ Channel →
+                                </ContextMenu.SubTrigger>
+                                <ContextMenu.Portal>
+                                    <ContextMenu.SubContent style={styles.contextMenu}>
+                                        {[...Array(16)].map((_, i) => (
+                                            <ContextMenu.Item
+                                                key={i + 1}
+                                                style={{
+                                                    ...styles.contextMenuItem,
+                                                    background:
+                                                        channel === i + 1
+                                                            ? 'rgba(255,0,255,0.2)'
+                                                            : 'transparent',
+                                                }}
+                                                onSelect={() => handleChannelSelect(i + 1)}
+                                            >
+                                                CH {i + 1}
+                                            </ContextMenu.Item>
+                                        ))}
+                                    </ContextMenu.SubContent>
+                                </ContextMenu.Portal>
+                            </ContextMenu.Sub>
+                            <ContextMenu.Separator
+                                style={{ height: 1, background: '#333', margin: '4px 0' }}
                             />
-                        ) : (
-                            <span style={styles.label} onDoubleClick={startEditingLabel}>
-                                {displayLabel}
-                            </span>
-                        )}
-
-                        {/* ─────────────────────────────────────────────────────
-                        CHANNEL BADGE (click to edit, 1-16)
-                    ───────────────────────────────────────────────────── */}
-                        {isEditingChannel ? (
-                            <input
-                                autoFocus
-                                value={tempChannel}
-                                onChange={(e) => setTempChannel(e.target.value)}
-                                onBlur={saveChannel}
-                                onKeyDown={handleChannelKeyDown}
-                                style={styles.channelInput}
-                            />
-                        ) : (
-                            <div style={styles.channelBadge} onClick={startEditingChannel}>
-                                CH {channel}
-                            </div>
-                        )}
-                    </div>
-                </Draggable>
+                            <ContextMenu.Item
+                                style={{
+                                    ...styles.contextMenuItem,
+                                    ...styles.contextMenuItemDanger,
+                                }}
+                                onSelect={() => setShowDeleteConfirm(true)}
+                            >
+                                🗑️ Remove
+                            </ContextMenu.Item>
+                        </ContextMenu.Content>
+                    </ContextMenu.Portal>
+                </ContextMenu.Root>
 
                 {/* ─────────────────────────────────────────────────────────────
-                DELETE CONFIRMATION DIALOG (Radix UI Portal)
-            ───────────────────────────────────────────────────────────── */}
+                    DELETE CONFIRMATION DIALOG
+                ───────────────────────────────────────────────────────────── */}
                 <Dialog.Root open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
                     <Dialog.Portal>
                         <Dialog.Overlay style={dialogStyles.overlay} />
@@ -319,7 +436,7 @@ const Box = memo(
                                 Remove Instrument?
                             </Dialog.Title>
                             <Dialog.Description style={dialogStyles.description}>
-                                Are you sure you want to remove this card?
+                                Are you sure you want to remove "{displayLabel}"?
                             </Dialog.Description>
                             <div style={dialogStyles.buttonRow}>
                                 <Dialog.Close asChild>

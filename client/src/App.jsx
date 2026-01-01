@@ -2,11 +2,13 @@
  * ╔═══════════════════════════════════════════════════════════════════════════╗
  * ║                          MIDI MACHINE - APP                               ║
  * ║  Main application component - manages MIDI state and renders UI          ║
+ * ║  Uses Radix Toast for notifications                                       ║
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
+import * as Toast from '@radix-ui/react-toast';
 import Header from './components/Header';
 import Canvas from './components/Canvas';
 import SystemMonitor from './components/SystemMonitor';
@@ -28,6 +30,9 @@ function App() {
     const [sources, setSources] = useState([]);
     const [deletedIds, setDeletedIds] = useState(new Set());
 
+    // Toast state
+    const [toasts, setToasts] = useState([]);
+
     // Refs to avoid stale closures in callbacks
     const deletedIdsRef = useRef(deletedIds);
     useEffect(() => {
@@ -35,18 +40,36 @@ function App() {
     }, [deletedIds]);
 
     /* ═══════════════════════════════════════════════════════════════════════
-     *  MIDI HANDLERS (defined before useEffect to avoid hoisting issues)
+     *  TOAST NOTIFICATIONS
      * ═══════════════════════════════════════════════════════════════════════ */
 
-    const handleIncomingMidi = useCallback((data) => {
-        const { deviceName, channel } = data;
-        const sourceId = `${deviceName}_ch${channel}`;
-
-        setSources((prev) => {
-            if (prev.find((s) => s.id === sourceId)) return prev;
-            return [...prev, { id: sourceId, label: deviceName, channel }];
-        });
+    const showToast = useCallback((title, description, type = 'info') => {
+        const id = Date.now();
+        setToasts((prev) => [...prev, { id, title, description, type }]);
+        // Auto-remove after 4 seconds
+        setTimeout(() => {
+            setToasts((prev) => prev.filter((t) => t.id !== id));
+        }, 4000);
     }, []);
+
+    /* ═══════════════════════════════════════════════════════════════════════
+     *  MIDI HANDLERS
+     * ═══════════════════════════════════════════════════════════════════════ */
+
+    const handleIncomingMidi = useCallback(
+        (data) => {
+            const { deviceName, channel } = data;
+            const sourceId = `${deviceName}_ch${channel}`;
+
+            setSources((prev) => {
+                if (prev.find((s) => s.id === sourceId)) return prev;
+                // Show toast for new device
+                showToast('🎹 New MIDI Source', `${deviceName} CH${channel}`, 'success');
+                return [...prev, { id: sourceId, label: deviceName, channel }];
+            });
+        },
+        [showToast]
+    );
 
     const getMIDIMessage = useCallback(
         (message, deviceName) => {
@@ -70,7 +93,8 @@ function App() {
 
     const onMIDIFailure = useCallback(() => {
         setMidiStatus('Access Denied/Failed');
-    }, []);
+        showToast('❌ MIDI Error', 'Access denied or failed', 'error');
+    }, [showToast]);
 
     const onMIDISuccess = useCallback(
         (access) => {
@@ -116,7 +140,6 @@ function App() {
 
             refreshInputs();
 
-            // Store handler reference for cleanup
             const stateChangeHandler = () => refreshInputs();
             access.onstatechange = stateChangeHandler;
 
@@ -129,9 +152,11 @@ function App() {
      *  EFFECTS
      * ═══════════════════════════════════════════════════════════════════════ */
 
-    // Initial setup
     useEffect(() => {
-        socket.on('connect', () => console.log('Connected to server'));
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            showToast('☁️ Connected', 'Server connection established', 'success');
+        });
         socket.on('midi:update', (data) => handleIncomingMidi(data));
 
         if (navigator.requestMIDIAccess) {
@@ -139,15 +164,15 @@ function App() {
             navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
         } else {
             setMidiStatus('Web MIDI Not Supported');
+            showToast('⚠️ Not Supported', 'Web MIDI API unavailable', 'error');
         }
 
         return () => {
             socket.off('connect');
             socket.off('midi:update');
         };
-    }, [handleIncomingMidi, onMIDISuccess, onMIDIFailure]);
+    }, [handleIncomingMidi, onMIDISuccess, onMIDIFailure, showToast]);
 
-    // Background polling for hardware changes
     useEffect(() => {
         const interval = setInterval(() => {
             if (navigator.requestMIDIAccess) {
@@ -163,19 +188,27 @@ function App() {
 
     const resetMidi = useCallback(() => {
         setDeletedIds(new Set());
+        showToast('🔄 Rescanning', 'Looking for MIDI devices...', 'info');
         if (navigator.requestMIDIAccess) {
             navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
         }
-    }, [onMIDISuccess, onMIDIFailure]);
+    }, [onMIDISuccess, onMIDIFailure, showToast]);
 
-    const removeSource = useCallback((id) => {
-        setDeletedIds((prev) => {
-            const next = new Set(prev);
-            next.add(id);
-            return next;
-        });
-        setSources((prev) => prev.filter((s) => s.id !== id));
-    }, []);
+    const removeSource = useCallback(
+        (id) => {
+            const source = sources.find((s) => s.id === id);
+            setDeletedIds((prev) => {
+                const next = new Set(prev);
+                next.add(id);
+                return next;
+            });
+            setSources((prev) => prev.filter((s) => s.id !== id));
+            if (source) {
+                showToast('🗑️ Removed', source.label, 'info');
+            }
+        },
+        [sources, showToast]
+    );
 
     const updateSourceChannel = useCallback(
         (id, newChannel) => {
@@ -198,47 +231,102 @@ function App() {
         [midiAccess]
     );
 
-    // Bridge for child components (set in effect to satisfy linter)
     useEffect(() => {
         window.appUpdateChannel = updateSourceChannel;
     }, [updateSourceChannel]);
+
+    /* ═══════════════════════════════════════════════════════════════════════
+     *  TOAST STYLES
+     * ═══════════════════════════════════════════════════════════════════════ */
+
+    const toastStyles = {
+        viewport: {
+            position: 'fixed',
+            bottom: 20,
+            left: 20,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            width: '320px',
+            maxWidth: '100vw',
+            zIndex: 50000,
+            listStyle: 'none',
+            margin: 0,
+            padding: 0,
+        },
+        root: {
+            background: '#1a1a1a',
+            border: '1px solid #333',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.6)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+        },
+        title: {
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '600',
+            margin: 0,
+        },
+        description: {
+            color: '#888',
+            fontSize: '12px',
+            margin: 0,
+        },
+    };
 
     /* ═══════════════════════════════════════════════════════════════════════
      *  RENDER
      * ═══════════════════════════════════════════════════════════════════════ */
 
     return (
-        <div
-            style={{
-                width: '100vw',
-                height: '100vh',
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                overflow: 'hidden',
-            }}
-        >
-            {/* Header */}
-            <Header
-                midiStatus={midiStatus}
-                socketConnected={socket.connected}
-                inputCount={inputs.length}
-                totalMessages={totalMessages}
-                boxCount={boxCount}
-                onRescan={resetMidi}
-            />
+        <Toast.Provider swipeDirection="left">
+            <div
+                style={{
+                    width: '100vw',
+                    height: '100vh',
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    overflow: 'hidden',
+                }}
+            >
+                {/* Header */}
+                <Header
+                    midiStatus={midiStatus}
+                    socketConnected={socket.connected}
+                    inputCount={inputs.length}
+                    totalMessages={totalMessages}
+                    boxCount={boxCount}
+                    onRescan={resetMidi}
+                />
 
-            {/* Main Canvas */}
-            <Canvas
-                sources={sources}
-                onRemove={removeSource}
-                onChannelChange={updateSourceChannel}
-                onBoxCountChange={setBoxCount}
-            />
+                {/* Main Canvas */}
+                <Canvas
+                    sources={sources}
+                    onRemove={removeSource}
+                    onChannelChange={updateSourceChannel}
+                    onBoxCountChange={setBoxCount}
+                />
 
-            {/* System Monitor */}
-            <SystemMonitor sources={sources} boxCount={boxCount} />
-        </div>
+                {/* System Monitor */}
+                <SystemMonitor sources={sources} boxCount={boxCount} />
+            </div>
+
+            {/* Toast Notifications */}
+            {toasts.map((toast) => (
+                <Toast.Root key={toast.id} style={toastStyles.root}>
+                    <Toast.Title style={toastStyles.title}>{toast.title}</Toast.Title>
+                    <Toast.Description style={toastStyles.description}>
+                        {toast.description}
+                    </Toast.Description>
+                </Toast.Root>
+            ))}
+
+            <Toast.Viewport style={toastStyles.viewport} />
+        </Toast.Provider>
     );
 }
 
