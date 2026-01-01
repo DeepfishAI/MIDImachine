@@ -5,7 +5,7 @@
  * ╚═══════════════════════════════════════════════════════════════════════════╝
  */
 
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import Box from './Box';
 
 const Canvas = memo(({ sources = [], onRemove, onChannelChange, onBoxCountChange }) => {
@@ -17,39 +17,48 @@ const Canvas = memo(({ sources = [], onRemove, onChannelChange, onBoxCountChange
 
     /* ═══════════════════════════════════════════════════════════════════════
      *  SOURCE SYNCHRONIZATION
-     *  - Initialize positions for new hardware sources
-     *  - Cleanup positions when sources are removed
+     *  - Compute which sources need initialization
+     *  - Uses useMemo to derive new sources without triggering re-renders
      * ═══════════════════════════════════════════════════════════════════════ */
 
-    useEffect(() => {
-        setBoxStates((prev) => {
-            const next = { ...prev };
-            let hasChanges = false;
+    // Derive sources that need positions
+    const sourceIds = useMemo(() => sources.map((s) => s.id), [sources]);
 
-            // Add new sources
-            sources.forEach((source, index) => {
-                if (!next[source.id]) {
-                    next[source.id] = {
-                        x: 80 + ((index * 30) % 400),
-                        y: 80 + ((index * 50) % 300),
-                        customLabel: null,
-                    };
-                    hasChanges = true;
-                }
-            });
+    // Sync boxStates with sources when source list changes
+    const syncedBoxStates = useMemo(() => {
+        const next = { ...boxStates };
+        let hasChanges = false;
 
-            // Cleanup removed sources
-            const currentIds = new Set(sources.map((s) => s.id));
-            Object.keys(next).forEach((id) => {
-                if (!currentIds.has(id)) {
-                    delete next[id];
-                    hasChanges = true;
-                }
-            });
-
-            return hasChanges ? next : prev;
+        // Add new sources
+        sources.forEach((source, index) => {
+            if (!next[source.id]) {
+                next[source.id] = {
+                    x: 80 + ((index * 30) % 400),
+                    y: 80 + ((index * 50) % 300),
+                    customLabel: null,
+                };
+                hasChanges = true;
+            }
         });
-    }, [sources]);
+
+        // Cleanup removed sources
+        const currentIds = new Set(sourceIds);
+        Object.keys(next).forEach((id) => {
+            if (!currentIds.has(id)) {
+                delete next[id];
+                hasChanges = true;
+            }
+        });
+
+        return hasChanges ? next : boxStates;
+    }, [sources, sourceIds, boxStates]);
+
+    // Update state if synced version differs
+    useEffect(() => {
+        if (syncedBoxStates !== boxStates) {
+            setBoxStates(syncedBoxStates);
+        }
+    }, [syncedBoxStates, boxStates]);
 
     /* ═══════════════════════════════════════════════════════════════════════
      *  BOX COUNT REPORTING

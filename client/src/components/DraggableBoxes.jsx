@@ -59,7 +59,11 @@ const DraggableBoxes = ({ sources = [], onRemove, onChannelChange }) => {
      * ═══════════════════════════════════════════════════════════════════════ */
 
     const dragRef = useRef(dragState);
-    dragRef.current = dragState;
+
+    // Update ref in effect to avoid updating during render
+    useEffect(() => {
+        dragRef.current = dragState;
+    }, [dragState]);
 
     useEffect(() => {
         const handleMouseMove = (e) => {
