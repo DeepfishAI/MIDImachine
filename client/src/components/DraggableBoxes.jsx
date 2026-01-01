@@ -115,13 +115,11 @@ const DraggableBoxes = ({ sources = [] }) => {
         },
         box: (isDragging) => ({
             position: 'absolute',
-            width: '180px',
-            height: '90px',
-            backgroundColor: 'white',
+            width: '300px',
+            height: '150px',
+            backgroundColor: '#ff00ff', // BRIGHT MAGENTA
             borderRadius: '12px',
-            boxShadow: isDragging
-                ? '0 10px 20px rgba(0,0,0,0.15)'
-                : '0 2px 5px rgba(0,0,0,0.1)',
+            boxShadow: '0 0 50px rgba(255,0,255,0.8)',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -129,8 +127,8 @@ const DraggableBoxes = ({ sources = [] }) => {
             cursor: isDragging ? 'grabbing' : 'grab',
             transform: isDragging ? 'scale(1.02)' : 'scale(1)',
             transition: 'box-shadow 0.1s, transform 0.1s',
-            zIndex: isDragging ? 100 : 1,
-            border: '1px solid #eee'
+            zIndex: isDragging ? 10000 : 5000, // VERY HIGH Z-INDEX
+            border: '5px solid #00ff00' // BRIGHT GREEN BORDER
         }),
         label: {
             fontFamily: 'sans-serif',
@@ -174,9 +172,9 @@ const DraggableBoxes = ({ sources = [] }) => {
                 <pre>{JSON.stringify(sources, null, 2)}</pre>
             </div>
 
-            {sources.map(source => {
-                // FALLBACK: If state is missing, render at default pos instead of null
-                const state = boxStates[source.id] || { x: 50, y: 100, customLabel: null };
+            {sources.map((source, index) => {
+                // FORCE POSITION to guaranteed visible location
+                const state = boxStates[source.id] || { x: 100, y: 100 + (index * 200), customLabel: null };
 
                 const isDragging = dragState?.id === source.id;
                 const isEditing = editingId === source.id;
@@ -189,7 +187,6 @@ const DraggableBoxes = ({ sources = [] }) => {
                             ...styles.box(isDragging),
                             left: state.x,
                             top: state.y,
-                            border: '2px solid red' // Temporary debug border
                         }}
                         onMouseDown={(e) => handleMouseDown(e, source.id)}
                     >
