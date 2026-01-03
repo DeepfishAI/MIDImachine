@@ -557,7 +557,79 @@ def interactive_mode(initial_device: Optional[int] = None):
                 else:
                     print("Usage: set<dev> [ch<ch>]  e.g. set2 ch3")
             
-            # Channel
+            # Shorthand: CH=3, CC74=100, VOL=80, PC=5, etc.
+            elif '=' in action:
+                import re
+                match = re.match(r'([a-zA-Z]+)(\d*)=(\d+)', action)
+                if match:
+                    param = match.group(1).upper()
+                    param_num = match.group(2)
+                    value = int(match.group(3))
+                    
+                    if param == 'CH':
+                        if 1 <= value <= 16:
+                            channel = value
+                            # Send confirmation CC7=64 on new channel
+                            with MidiOut(device_id) as m:
+                                m.send_cc(channel - 1, 7, 64)
+                            print(f"📺 Channel = {channel} (confirmed)")
+                        else:
+                            print("Channel must be 1-16")
+                    
+                    elif param == 'CC' and param_num:
+                        cc = int(param_num)
+                        v = max(0, min(127, value))
+                        with MidiOut(device_id) as m:
+                            m.send_cc(channel - 1, cc, v)
+                        current_cc[str(cc)] = v
+                        print(f"✅ CC{cc} = {v}")
+                    
+                    elif param == 'VOL':
+                        v = max(0, min(127, value))
+                        with MidiOut(device_id) as m:
+                            m.send_cc(channel - 1, 7, v)
+                        current_cc['7'] = v
+                        print(f"✅ Volume = {v}")
+                    
+                    elif param == 'PAN':
+                        v = max(0, min(127, value))
+                        with MidiOut(device_id) as m:
+                            m.send_cc(channel - 1, 10, v)
+                        current_cc['10'] = v
+                        print(f"✅ Pan = {v}")
+                    
+                    elif param == 'PC':
+                        with MidiOut(device_id) as m:
+                            m.send_program_change(channel - 1, value)
+                        print(f"✅ Program = {value}")
+                    
+                    elif param == 'MOD':
+                        v = max(0, min(127, value))
+                        with MidiOut(device_id) as m:
+                            m.send_cc(channel - 1, 1, v)
+                        current_cc['1'] = v
+                        print(f"✅ Modulation = {v}")
+                    
+                    elif param == 'CUT' or param == 'CUTOFF':
+                        v = max(0, min(127, value))
+                        with MidiOut(device_id) as m:
+                            m.send_cc(channel - 1, 74, v)
+                        current_cc['74'] = v
+                        print(f"✅ Cutoff = {v}")
+                    
+                    elif param == 'RES' or param == 'RESONANCE':
+                        v = max(0, min(127, value))
+                        with MidiOut(device_id) as m:
+                            m.send_cc(channel - 1, 71, v)
+                        current_cc['71'] = v
+                        print(f"✅ Resonance = {v}")
+                    
+                    else:
+                        print(f"Unknown param: {param}. Use CH=, CC#=, VOL=, PAN=, PC=, MOD=, CUT=, RES=")
+                else:
+                    print("Format: PARAM=VALUE (e.g. CH=3, CC74=100, VOL=80)")
+            
+            # Channel (legacy)
             elif action == 'channel':
                 if len(parts) >= 2:
                     ch = int(parts[1])
