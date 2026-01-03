@@ -1,0 +1,24 @@
+{
+    "devices": {
+        "0": {
+            "name": "Microsoft GS Wavetable Synth",
+            "channel": 1,
+            "alias": "GSMIDI"
+        },
+        "1": {
+            "name": "Launchkey MK4 49 MIDI",
+            "channel": 1,
+            "alias": "LK49"
+        },
+        "2": {
+            "name": "MIDIOUT2 (Launchkey MK4 49 MIDI)",
+            "channel": 1,
+            "alias": "LK49-2"
+        },
+        "3": {
+            "name": "Arturia MiniLab mkII",
+            "channel": 2,
+            "alias": "Minilab"
+        }
+    }
+}

@@ -380,9 +380,47 @@ def run_script(device_id: int, channel: int, filepath: str):
 # CLI Interface
 # ============================================================================
 
+CONFIG_FILE = Path(__file__).parent / "config.json"
+
+def load_config() -> Dict:
+    """Load device configuration."""
+    if CONFIG_FILE.exists():
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    return {"devices": {}}
+
+def save_config(config: Dict):
+    """Save device configuration."""
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(config, f, indent=2)
+
+def get_device_config(device_id: int) -> Dict:
+    """Get config for a specific device."""
+    config = load_config()
+    return config.get("devices", {}).get(str(device_id), {})
+
+def set_device_config(device_id: int, channel: int = None, alias: str = None):
+    """Set config for a device."""
+    config = load_config()
+    if "devices" not in config:
+        config["devices"] = {}
+    
+    dev_key = str(device_id)
+    if dev_key not in config["devices"]:
+        config["devices"][dev_key] = {}
+    
+    if channel is not None:
+        config["devices"][dev_key]["channel"] = channel
+    if alias is not None:
+        config["devices"][dev_key]["alias"] = alias
+    
+    save_config(config)
+
+
 def print_devices():
     inputs = get_input_devices()
     outputs = get_output_devices()
+    config = load_config()
     
     print("\n" + "=" * 60)
     print("  MIDI DEVICES")
@@ -390,39 +428,56 @@ def print_devices():
     
     print("\n📥 INPUT:")
     for i, name in enumerate(inputs):
-        print(f"   [{i}] {name}")
+        dev_cfg = config.get("devices", {}).get(str(i), {})
+        ch = dev_cfg.get("channel", 1)
+        alias = dev_cfg.get("alias", "")
+        alias_str = f" [{alias}]" if alias else ""
+        print(f"   [{i}] (ch{ch}) {name}{alias_str}")
     if not inputs:
         print("   (none)")
     
     print("\n📤 OUTPUT:")
     for i, name in enumerate(outputs):
-        print(f"   [{i}] {name}")
+        dev_cfg = config.get("devices", {}).get(str(i), {})
+        ch = dev_cfg.get("channel", 1)
+        alias = dev_cfg.get("alias", "")
+        alias_str = f" [{alias}]" if alias else ""
+        print(f"   [{i}] (ch{ch}) {name}{alias_str}")
     if not outputs:
         print("   (none)")
     print()
 
 
-def select_device() -> Optional[int]:
+def select_device() -> tuple:
+    """Select device, returns (device_id, default_channel)."""
     outputs = get_output_devices()
+    config = load_config()
+    
     if not outputs:
         print("❌ No MIDI output devices found!")
-        return None
+        return None, 1
     
     print("\n📤 OUTPUT DEVICES:")
     for i, name in enumerate(outputs):
-        print(f"   [{i}] {name}")
+        dev_cfg = config.get("devices", {}).get(str(i), {})
+        ch = dev_cfg.get("channel", 1)
+        alias = dev_cfg.get("alias", "")
+        alias_str = f" [{alias}]" if alias else ""
+        print(f"   [{i}] (ch{ch}) {name}{alias_str}")
     
     while True:
         try:
             choice = input("\nSelect device [0]: ").strip() or "0"
             idx = int(choice)
             if 0 <= idx < len(outputs):
-                return idx
+                dev_cfg = config.get("devices", {}).get(str(idx), {})
+                default_ch = dev_cfg.get("channel", 1)
+                return idx, default_ch
             print(f"Enter 0-{len(outputs)-1}")
         except ValueError:
             print("Enter a number")
         except KeyboardInterrupt:
-            return None
+            return None, 1
 
 
 def print_help():
@@ -479,15 +534,23 @@ def interactive_mode(initial_device: Optional[int] = None):
     print("=" * 60)
     
     outputs = get_output_devices()
-    device_id = initial_device if initial_device is not None else select_device()
-    if device_id is None:
-        return
+    
+    if initial_device is not None:
+        device_id = initial_device
+        dev_cfg = get_device_config(device_id)
+        channel = dev_cfg.get("channel", 1)
+    else:
+        device_id, channel = select_device()
+        if device_id is None:
+            return
     
     device_name = outputs[device_id] if device_id < len(outputs) else f"Device {device_id}"
-    channel = 1
+    dev_cfg = get_device_config(device_id)
+    alias = dev_cfg.get("alias", "")
     current_cc = {}  # Track sent CC values for preset saving
     
-    print(f"\n🎹 {device_name}")
+    alias_str = f" [{alias}]" if alias else ""
+    print(f"\n🎹 {device_name}{alias_str}")
     print(f"📺 Channel {channel}\n")
     
     while True:
@@ -519,12 +582,16 @@ def interactive_mode(initial_device: Optional[int] = None):
                 if active_lfo:
                     active_lfo.stop()
                     active_lfo = None
-                new_id = select_device()
+                new_id, new_ch = select_device()
                 if new_id is not None:
                     device_id = new_id
+                    channel = new_ch
                     outputs = get_output_devices()
                     device_name = outputs[device_id]
-                    print(f"🎹 {device_name}")
+                    dev_cfg = get_device_config(device_id)
+                    alias = dev_cfg.get("alias", "")
+                    alias_str = f" [{alias}]" if alias else ""
+                    print(f"🎹 {device_name}{alias_str} → Channel {channel}")
             
             # Quick set command: set2 ch3 = device 2, channel 3
             elif action.startswith('set'):
