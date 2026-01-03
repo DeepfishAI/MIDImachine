@@ -1,0 +1,29 @@
+# Example MIDImachine script
+# Lines starting with # are comments
+
+# Set initial patch
+pc 0
+
+# Filter sweep
+cc 74 20
+wait 0.5
+cc 74 40
+wait 0.5
+cc 74 60
+wait 0.5
+cc 74 80
+wait 0.5
+cc 74 100
+
+# Set envelope
+cc 73 30
+cc 72 60
+
+# Play a chord
+note 60 100 0.5
+note 64 100 0.5
+note 67 100 0.5
+
+# Wait and reset
+wait 1
+cc 74 64
