@@ -423,16 +423,15 @@ def print_devices():
     config = load_config()
     
     print("\n" + "=" * 60)
-    print("  MIDI DEVICES (Output)")
+    print("  MIDI DEVICES")
     print("=" * 60 + "\n")
     
     for i, name in enumerate(outputs):
         num = i + 1  # 1-based numbering
         dev_cfg = config.get("devices", {}).get(str(i), {})
         ch = dev_cfg.get("channel", 1)
-        alias = dev_cfg.get("alias", "")
-        alias_str = f" [{alias}]" if alias else ""
-        print(f"   {num}. (ch{ch}) {name}{alias_str}")
+        alias = dev_cfg.get("alias", name[:10])  # Use first 10 chars if no alias
+        print(f"   {num} [{alias}] (ch{ch})")
     
     if not outputs:
         print("   (none)")
@@ -453,9 +452,8 @@ def select_device() -> tuple:
         num = i + 1  # 1-based
         dev_cfg = config.get("devices", {}).get(str(i), {})
         ch = dev_cfg.get("channel", 1)
-        alias = dev_cfg.get("alias", "")
-        alias_str = f" [{alias}]" if alias else ""
-        print(f"   {num}. (ch{ch}) {name}{alias_str}")
+        alias = dev_cfg.get("alias", name[:10])  # Use first 10 chars if no alias
+        print(f"   {num} [{alias}] (ch{ch})")
     
     while True:
         try:
