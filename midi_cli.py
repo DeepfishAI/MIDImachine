@@ -430,6 +430,10 @@ def print_help():
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  MIDIMACHINE COMMANDS                                                   │
 ├─────────────────────────────────────────────────────────────────────────┤
+│  QUICK ACCESS:                                                          │
+│    set<dev> ch<ch>             Switch device & channel (e.g. set2 ch3) │
+│    set<dev>                    Switch to device only                   │
+│                                                                         │
 │  BASIC:                                                                 │
 │    cc <cc#> <value>           Send Control Change                      │
 │    note <note> <vel> [dur]    Send Note                                │
@@ -521,6 +525,37 @@ def interactive_mode(initial_device: Optional[int] = None):
                     outputs = get_output_devices()
                     device_name = outputs[device_id]
                     print(f"🎹 {device_name}")
+            
+            # Quick set command: set2 ch3 = device 2, channel 3
+            elif action.startswith('set'):
+                import re
+                # Parse set<dev> [ch<ch>]
+                full_cmd = ' '.join(parts)
+                match = re.match(r'set(\d+)\s*(?:ch(\d+))?', full_cmd, re.IGNORECASE)
+                if match:
+                    new_dev = int(match.group(1))
+                    new_ch = int(match.group(2)) if match.group(2) else None
+                    
+                    outputs = get_output_devices()
+                    if new_dev < len(outputs):
+                        if active_lfo:
+                            active_lfo.stop()
+                            active_lfo = None
+                        device_id = new_dev
+                        device_name = outputs[device_id]
+                        
+                        if new_ch and 1 <= new_ch <= 16:
+                            channel = new_ch
+                        
+                        # Send confirmation CC7 (volume) at 64 on new channel
+                        with MidiOut(device_id) as m:
+                            m.send_cc(channel - 1, 7, 64)
+                        
+                        print(f"✅ Set: Device [{device_id}] {device_name} → Channel {channel}")
+                    else:
+                        print(f"❌ Invalid device. Max: {len(outputs)-1}")
+                else:
+                    print("Usage: set<dev> [ch<ch>]  e.g. set2 ch3")
             
             # Channel
             elif action == 'channel':
