@@ -418,38 +418,29 @@ def set_device_config(device_id: int, channel: int = None, alias: str = None):
 
 
 def print_devices():
-    inputs = get_input_devices()
+    """Print devices with sequential 1-based numbering."""
     outputs = get_output_devices()
     config = load_config()
     
     print("\n" + "=" * 60)
-    print("  MIDI DEVICES")
-    print("=" * 60)
+    print("  MIDI DEVICES (Output)")
+    print("=" * 60 + "\n")
     
-    print("\n📥 INPUT:")
-    for i, name in enumerate(inputs):
-        dev_cfg = config.get("devices", {}).get(str(i), {})
-        ch = dev_cfg.get("channel", 1)
-        alias = dev_cfg.get("alias", "")
-        alias_str = f" [{alias}]" if alias else ""
-        print(f"   [{i}] (ch{ch}) {name}{alias_str}")
-    if not inputs:
-        print("   (none)")
-    
-    print("\n📤 OUTPUT:")
     for i, name in enumerate(outputs):
+        num = i + 1  # 1-based numbering
         dev_cfg = config.get("devices", {}).get(str(i), {})
         ch = dev_cfg.get("channel", 1)
         alias = dev_cfg.get("alias", "")
         alias_str = f" [{alias}]" if alias else ""
-        print(f"   [{i}] (ch{ch}) {name}{alias_str}")
+        print(f"   {num}. (ch{ch}) {name}{alias_str}")
+    
     if not outputs:
         print("   (none)")
     print()
 
 
 def select_device() -> tuple:
-    """Select device, returns (device_id, default_channel)."""
+    """Select device, returns (device_id, default_channel). Uses 1-based numbering."""
     outputs = get_output_devices()
     config = load_config()
     
@@ -457,23 +448,25 @@ def select_device() -> tuple:
         print("❌ No MIDI output devices found!")
         return None, 1
     
-    print("\n📤 OUTPUT DEVICES:")
+    print("\n  MIDI Devices:")
     for i, name in enumerate(outputs):
+        num = i + 1  # 1-based
         dev_cfg = config.get("devices", {}).get(str(i), {})
         ch = dev_cfg.get("channel", 1)
         alias = dev_cfg.get("alias", "")
         alias_str = f" [{alias}]" if alias else ""
-        print(f"   [{i}] (ch{ch}) {name}{alias_str}")
+        print(f"   {num}. (ch{ch}) {name}{alias_str}")
     
     while True:
         try:
-            choice = input("\nSelect device [0]: ").strip() or "0"
-            idx = int(choice)
+            choice = input("\nSelect device [1]: ").strip() or "1"
+            num = int(choice)
+            idx = num - 1  # Convert to 0-based index
             if 0 <= idx < len(outputs):
                 dev_cfg = config.get("devices", {}).get(str(idx), {})
                 default_ch = dev_cfg.get("channel", 1)
                 return idx, default_ch
-            print(f"Enter 0-{len(outputs)-1}")
+            print(f"Enter 1-{len(outputs)}")
         except ValueError:
             print("Enter a number")
         except KeyboardInterrupt:
